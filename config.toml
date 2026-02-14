@@ -1,0 +1,68 @@
+# Running Performance Analyzer - Streamlit Configuration
+# 
+# Documentation: https://docs.streamlit.io/library/advanced-features/configuration
+
+[theme]
+# Color theme
+primaryColor = "#FF4B4B"  # Red for running
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+font = "sans serif"
+
+[server]
+# Server settings
+headless = true
+port = 8501
+enableCORS = false
+enableXsrfProtection = true
+
+# File watcher (disable in production)
+fileWatcherType = "auto"
+
+# Max upload size (MB) - for future file uploads
+maxUploadSize = 200
+
+[browser]
+# Browser behavior
+gatherUsageStats = false  # Privacy
+serverAddress = "localhost"
+serverPort = 8501
+
+[runner]
+# Script runner
+magicEnabled = true
+fastReruns = true
+
+# Fix matplotlib backend
+# matplotlibBackend = "Agg"
+
+[client]
+# Client settings
+showErrorDetails = true  # Show detailed errors (disable in production)
+toolbarMode = "auto"
+
+[logger]
+# Logging
+level = "info"
+messageFormat = "%(asctime)s %(levelname)s: %(message)s"
+
+[deprecation]
+# Deprecation warnings
+showPyplotGlobalUse = false
+
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+# 
+# This file is loaded automatically by Streamlit from:
+# - .streamlit/config.toml (project-level)
+# - ~/.streamlit/config.toml (user-level)
+# 
+# Priority: project-level > user-level > defaults
+# 
+# For production:
+# - Set showErrorDetails = false
+# - Set gatherUsageStats per your privacy policy
+# - Disable fileWatcherType = "none"
+# - Consider enabling HTTPS

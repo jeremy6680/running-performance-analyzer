@@ -1,0 +1,206 @@
+# Running Performance Analyzer - Development Dependencies
+# 
+# Install with: pip install -r requirements-dev.txt
+# (after installing requirements.txt)
+
+# Include base requirements
+-r requirements.txt
+
+# =============================================================================
+# TESTING
+# =============================================================================
+# Testing framework
+pytest==8.0.0
+pytest-asyncio==0.23.4
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+pytest-xdist==3.5.0  # Parallel test execution
+
+# Test data generation
+faker==22.6.0
+factory-boy==3.3.0
+
+# HTTP mocking for API tests
+responses==0.25.0
+httpretty==1.1.7
+
+# =============================================================================
+# CODE QUALITY
+# =============================================================================
+# Linting
+ruff==0.2.1  # Fast Python linter (replaces flake8, isort, etc.)
+pylint==3.0.3
+
+# Type checking
+mypy==1.8.0
+
+# Security scanning
+bandit==1.7.6
+safety==3.0.1
+
+# =============================================================================
+# CODE FORMATTING
+# =============================================================================
+# Code formatter
+black==24.1.1
+
+# Import sorting
+isort==5.13.2
+
+# =============================================================================
+# NOTEBOOKS
+# =============================================================================
+# Jupyter
+jupyter==1.0.0
+jupyterlab==4.0.11
+notebook==7.0.7
+
+# Jupyter extensions
+ipywidgets==8.1.1
+jupyter-contrib-nbextensions==0.7.0
+
+# Notebook quality
+nbqa==1.7.1  # Run linters on notebooks
+nbconvert==7.14.2
+
+# =============================================================================
+# DOCUMENTATION
+# =============================================================================
+# Documentation generation
+mkdocs==1.5.3
+mkdocs-material==9.5.6
+mkdocstrings==0.24.0
+mkdocstrings-python==1.8.0
+
+# API documentation
+pdoc==14.3.0
+
+# =============================================================================
+# DATABASE TOOLS
+# =============================================================================
+# Database inspection
+sqlalchemy==2.0.25  # For DB introspection
+sqlparse==0.4.4  # SQL formatting
+
+# =============================================================================
+# PERFORMANCE PROFILING
+# =============================================================================
+# Profiling
+py-spy==0.3.14
+memory-profiler==0.61.0
+line-profiler==4.1.1
+
+# Timing utilities
+python-timeit==1.1.0
+
+# =============================================================================
+# DEBUGGING
+# =============================================================================
+# Enhanced debugger
+ipdb==0.13.13
+pdbpp==0.10.3
+
+# =============================================================================
+# PRE-COMMIT HOOKS
+# =============================================================================
+# Pre-commit framework
+pre-commit==3.6.0
+
+# =============================================================================
+# CI/CD HELPERS
+# =============================================================================
+# Coverage reporting
+coverage[toml]==7.4.1
+codecov==2.1.13
+
+# =============================================================================
+# DATA EXPLORATION
+# =============================================================================
+# Interactive data exploration
+pandas-profiling==3.6.6
+sweetviz==2.3.1
+
+# Enhanced dataframe display
+tabulate==0.9.0
+
+# =============================================================================
+# VERSION MANAGEMENT
+# =============================================================================
+# Dependency management
+pip-tools==7.3.0
+pipdeptree==2.13.2
+
+# =============================================================================
+# MISC DEVELOPMENT TOOLS
+# =============================================================================
+# Better REPL
+ipython==8.20.0
+
+# Shell utilities
+click==8.1.7
+
+# File watching for auto-reload
+watchdog==3.0.0
+
+# Environment comparison
+diff-cover==8.0.2
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+# Example .pre-commit-config.yaml should include:
+# 
+# repos:
+#   - repo: https://github.com/psf/black
+#     rev: 24.1.1
+#     hooks:
+#       - id: black
+#   
+#   - repo: https://github.com/pycqa/isort
+#     rev: 5.13.2
+#     hooks:
+#       - id: isort
+#   
+#   - repo: https://github.com/astral-sh/ruff-pre-commit
+#     rev: v0.2.1
+#     hooks:
+#       - id: ruff
+#   
+#   - repo: https://github.com/pre-commit/pre-commit-hooks
+#     rev: v4.5.0
+#     hooks:
+#       - id: trailing-whitespace
+#       - id: end-of-file-fixer
+#       - id: check-yaml
+#       - id: check-added-large-files
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+# 
+# Run tests:
+#   pytest tests/
+# 
+# Run tests with coverage:
+#   pytest --cov=. --cov-report=html tests/
+# 
+# Format code:
+#   black .
+#   isort .
+# 
+# Lint code:
+#   ruff check .
+#   pylint ingestion/ ai_engine/
+# 
+# Type check:
+#   mypy ingestion/ ai_engine/
+# 
+# Security scan:
+#   bandit -r .
+#   safety check
+# 
+# Install pre-commit hooks:
+#   pre-commit install
+# 
+# Run pre-commit on all files:
+#   pre-commit run --all-files

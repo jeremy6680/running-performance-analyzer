@@ -1,0 +1,187 @@
+# Running Performance Analyzer - Python Dependencies
+# 
+# Install with: pip install -r requirements.txt
+# 
+# For production: pip install -r requirements.txt --no-cache-dir
+# For development: pip install -r requirements.txt && pip install -r requirements-dev.txt
+
+# =============================================================================
+# CORE DATA PROCESSING
+# =============================================================================
+# Data manipulation and analysis
+pandas==2.2.0
+numpy==1.26.3
+
+# Database
+duckdb==0.10.0
+
+# Date/time utilities
+python-dateutil==2.8.2
+pytz==2024.1
+
+# =============================================================================
+# API CONNECTORS
+# =============================================================================
+# Garmin Connect API
+garminconnect==0.2.13
+
+# Strava API (optional)
+stravalib==1.6.0
+
+# HTTP requests
+requests==2.31.0
+httpx==0.26.0
+
+# =============================================================================
+# DATA TRANSFORMATION (dbt)
+# =============================================================================
+# dbt for DuckDB
+dbt-core==1.7.7
+dbt-duckdb==1.7.2
+
+# =============================================================================
+# WORKFLOW ORCHESTRATION (Airflow)
+# =============================================================================
+# Apache Airflow with essential providers
+apache-airflow==2.8.1
+apache-airflow-providers-common-sql==1.10.0
+
+# Note: For full Airflow setup, see airflow/requirements.txt
+# This is a minimal version for local development
+
+# =============================================================================
+# AI / LLM
+# =============================================================================
+# Anthropic Claude API
+anthropic==0.18.1
+
+# LangChain ecosystem
+langchain==0.1.6
+langchain-anthropic==0.1.4
+langchain-community==0.0.19
+
+# Optional: Vector stores for RAG (future phase)
+# chromadb==0.4.22
+# faiss-cpu==1.7.4
+
+# =============================================================================
+# WEB APPLICATION (Streamlit)
+# =============================================================================
+# Streamlit framework
+streamlit==1.31.0
+
+# Visualization libraries
+plotly==5.18.0
+altair==5.2.0
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+# Configuration management
+python-dotenv==1.0.1
+pydantic==2.6.0
+pydantic-settings==2.1.0
+
+# Logging
+loguru==0.7.2
+
+# Progress bars
+tqdm==4.66.1
+
+# YAML parsing
+PyYAML==6.0.1
+
+# JSON handling
+orjson==3.9.13
+
+# =============================================================================
+# DATA VALIDATION & QUALITY
+# =============================================================================
+# Data validation
+great-expectations==0.18.8
+
+# Schema validation
+jsonschema==4.21.1
+
+# =============================================================================
+# TESTING (for development)
+# =============================================================================
+# Note: For full dev dependencies, see requirements-dev.txt
+pytest==8.0.0
+pytest-cov==4.1.0
+
+# =============================================================================
+# HEALTH & FITNESS SPECIFIC
+# =============================================================================
+# Fitness calculations (pace, heart rate zones, etc.)
+# Note: We'll create custom utilities, but these can help
+scipy==1.12.0  # For statistical calculations
+
+# =============================================================================
+# FILE FORMATS
+# =============================================================================
+# Excel support (for exports)
+openpyxl==3.1.2
+
+# CSV with better performance
+csvkit==1.4.0
+
+# =============================================================================
+# PERFORMANCE
+# =============================================================================
+# Faster JSON parsing
+ujson==5.9.0
+
+# Connection pooling
+urllib3==2.2.0
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+# Password hashing (for Airflow, etc.)
+cryptography==42.0.2
+
+# Environment variable validation
+python-decouple==3.8
+
+# =============================================================================
+# OPTIONAL INTEGRATIONS (commented out by default)
+# =============================================================================
+# Google Sheets export
+# gspread==6.0.2
+# oauth2client==4.1.3
+
+# Notion integration
+# notion-client==2.2.1
+
+# Slack notifications
+# slack-sdk==3.26.2
+
+# =============================================================================
+# VERSION CONSTRAINTS
+# =============================================================================
+# Ensure compatibility between packages
+setuptools>=65.0.0
+wheel>=0.42.0
+pip>=23.0.0
+
+# =============================================================================
+# NOTES
+# =============================================================================
+# Python version required: >=3.10, <3.13
+# Tested on: Python 3.11
+# 
+# Installation order matters for some packages (especially Airflow).
+# If you encounter issues:
+# 1. Create fresh virtual environment
+# 2. Upgrade pip: pip install --upgrade pip
+# 3. Install in order: core deps → airflow → dbt → streamlit → ai
+# 
+# For Apple Silicon (M1/M2 Macs), you may need to:
+# - Install Xcode command line tools
+# - Use conda for some scientific packages
+# 
+# For production deployment:
+# - Pin exact versions (remove >= constraints)
+# - Use pip-compile to generate lock file
+# - Consider using Poetry or PDM for dependency management

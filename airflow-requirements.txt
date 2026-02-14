@@ -1,0 +1,53 @@
+# Running Performance Analyzer - Airflow Requirements
+# 
+# Install inside Airflow containers with:
+# pip install --no-cache-dir -r /opt/airflow/requirements.txt
+
+# =============================================================================
+# CORE DEPENDENCIES (from main requirements.txt)
+# =============================================================================
+pandas==2.2.0
+duckdb==0.10.0
+python-dotenv==1.0.1
+
+# =============================================================================
+# API CONNECTORS
+# =============================================================================
+garminconnect==0.2.13
+stravalib==1.6.0
+requests==2.31.0
+
+# =============================================================================
+# DBT
+# =============================================================================
+dbt-core==1.7.7
+dbt-duckdb==1.7.2
+
+# =============================================================================
+# AI / LLM (for AI-powered DAG tasks)
+# =============================================================================
+anthropic==0.18.1
+langchain==0.1.6
+langchain-anthropic==0.1.4
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+loguru==0.7.2
+tqdm==4.66.1
+
+# =============================================================================
+# DATA QUALITY
+# =============================================================================
+great-expectations==0.18.8
+
+# =============================================================================
+# NOTES
+# =============================================================================
+# These dependencies are installed in addition to the base Airflow image packages.
+# The Airflow image already includes:
+# - apache-airflow
+# - apache-airflow-providers-*
+# - psycopg2 (for PostgreSQL)
+# 
+# Avoid version conflicts with pre-installed packages in the Airflow image.

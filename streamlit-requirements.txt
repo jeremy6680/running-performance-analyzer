@@ -1,0 +1,22 @@
+# Running Performance Analyzer - Streamlit Requirements
+# 
+# These are additional dependencies specific to the Streamlit app.
+# Base dependencies are in the root requirements.txt
+
+# Streamlit and related
+streamlit==1.31.0
+
+# Visualization
+plotly==5.18.0
+altair==5.2.0
+
+# Data display enhancements
+streamlit-aggrid==0.3.4  # Interactive dataframes
+streamlit-extras==0.3.6  # Additional Streamlit components
+
+# Metrics and KPIs display
+streamlit-metrics==0.1.0
+
+# Optional: Advanced charts
+# streamlit-echarts==0.4.0
+# streamlit-plotly-events==0.0.6

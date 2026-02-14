@@ -1,0 +1,290 @@
+version: '3.8'
+
+# Running Performance Analyzer - Docker Compose Configuration
+# 
+# Services:
+# - postgres: Airflow metadata database
+# - redis: Airflow message broker (for CeleryExecutor, optional)
+# - airflow-webserver: Airflow UI
+# - airflow-scheduler: Airflow task scheduler
+# - airflow-init: Initialize Airflow database and admin user
+# 
+# Usage:
+#   Start all services:     docker-compose up -d
+#   Stop all services:      docker-compose down
+#   View logs:              docker-compose logs -f
+#   Restart scheduler:      docker-compose restart airflow-scheduler
+#   Access Airflow UI:      http://localhost:8080
+#   Access Streamlit:       http://localhost:8501
+
+# =============================================================================
+# SHARED CONFIGURATION
+# =============================================================================
+x-airflow-common: &airflow-common
+  # Use official Airflow image (or build custom if needed)
+  image: apache/airflow:2.8.1-python3.11
+  
+  # Load environment variables from .env file
+  env_file:
+    - .env
+  
+  # Additional environment variables
+  environment:
+    # Airflow core settings
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TIMEZONE:-Europe/Paris}
+    
+    # Airflow API
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    
+    # Airflow webserver
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
+    AIRFLOW__WEBSERVER__RBAC: 'true'
+    
+    # Logging
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    
+    # Variables accessible in DAGs
+    DUCKDB_PATH: /opt/airflow/data/duckdb/running_analytics.duckdb
+    GARMIN_EMAIL: ${GARMIN_EMAIL}
+    GARMIN_PASSWORD: ${GARMIN_PASSWORD}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  
+  # Mount volumes
+  volumes:
+    # DAGs folder (read-only for security)
+    - ./airflow/dags:/opt/airflow/dags:ro
+    
+    # Logs folder (read-write)
+    - ./airflow/logs:/opt/airflow/logs
+    
+    # Plugins folder (read-only)
+    - ./airflow/plugins:/opt/airflow/plugins:ro
+    
+    # Data folder (shared with host for DuckDB)
+    - ./data:/opt/airflow/data
+    
+    # Python modules (ingestion, ai_engine) accessible to DAGs
+    - ./ingestion:/opt/airflow/modules/ingestion:ro
+    - ./ai_engine:/opt/airflow/modules/ai_engine:ro
+    - ./dbt_project:/opt/airflow/dbt_project:ro
+    
+    # Requirements for additional packages
+    - ./airflow/requirements.txt:/opt/airflow/requirements.txt:ro
+  
+  # User permissions (run as airflow user)
+  user: "${AIRFLOW_UID:-50000}:0"
+  
+  # Dependencies
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+  
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Airflow Metadata Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: running_analyzer_postgres
+    
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    
+    ports:
+      - "5432:5432"
+    
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Airflow Webserver - UI
+  # ---------------------------------------------------------------------------
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: running_analyzer_airflow_webserver
+    
+    command: webserver
+    
+    ports:
+      - "8080:8080"
+    
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Airflow Scheduler - Task Orchestration
+  # ---------------------------------------------------------------------------
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: running_analyzer_airflow_scheduler
+    
+    command: scheduler
+    
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Airflow Initialization - Run Once
+  # ---------------------------------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    container_name: running_analyzer_airflow_init
+    
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Create directories with correct permissions
+        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/{logs,dags,plugins}
+        
+        # Initialize Airflow database
+        airflow db init
+        
+        # Create admin user
+        airflow users create \
+          --username ${AIRFLOW_ADMIN_USERNAME:-admin} \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} \
+          --password ${AIRFLOW_ADMIN_PASSWORD:-admin}
+        
+        # Install additional Python packages
+        if [ -f /opt/airflow/requirements.txt ]; then
+          pip install --no-cache-dir -r /opt/airflow/requirements.txt
+        fi
+        
+        echo "Airflow initialization complete!"
+    
+    environment:
+      <<: *airflow-common
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+    
+    user: "0:0"
+    
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Streamlit App (Optional - can run separately)
+  # ---------------------------------------------------------------------------
+  streamlit:
+    build:
+      context: .
+      dockerfile: streamlit_app/Dockerfile
+    container_name: running_analyzer_streamlit
+    
+    env_file:
+      - .env
+    
+    environment:
+      DUCKDB_PATH: /app/data/duckdb/running_analytics.duckdb
+    
+    volumes:
+      # Streamlit app code
+      - ./streamlit_app:/app/streamlit_app:ro
+      
+      # Shared data folder (read-only, Airflow writes, Streamlit reads)
+      - ./data:/app/data:ro
+      
+      # AI engine (for LLM integration)
+      - ./ai_engine:/app/ai_engine:ro
+    
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    
+    command: streamlit run streamlit_app/app.py
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  # PostgreSQL data persistence
+  postgres-db-volume:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  default:
+    name: running_analyzer_network
+
+# =============================================================================
+# USAGE NOTES
+# =============================================================================
+# 
+# 1. FIRST TIME SETUP:
+#    - Copy .env.example to .env and fill credentials
+#    - Create required directories:
+#      mkdir -p airflow/{dags,logs,plugins} data/duckdb data/raw data/exports
+#    - Set Airflow UID: echo -e "AIRFLOW_UID=$(id -u)" >> .env
+#    - Start services: docker-compose up -d
+#    - Wait for initialization (check logs: docker-compose logs -f airflow-init)
+# 
+# 2. DAILY USAGE:
+#    - Start: docker-compose up -d
+#    - Stop: docker-compose down
+#    - Restart specific service: docker-compose restart airflow-scheduler
+# 
+# 3. ACCESSING SERVICES:
+#    - Airflow UI: http://localhost:8080 (login with credentials from .env)
+#    - Streamlit: http://localhost:8501
+#    - PostgreSQL: localhost:5432 (for debugging)
+# 
+# 4. DEBUGGING:
+#    - View logs: docker-compose logs -f [service_name]
+#    - Execute command in container: docker-compose exec airflow-scheduler bash
+#    - Reset database: docker-compose down -v && docker-compose up -d
+# 
+# 5. UPDATING DEPENDENCIES:
+#    - Modify airflow/requirements.txt
+#    - Rebuild: docker-compose down && docker-compose up -d --build
+# 
+# 6. PRODUCTION CONSIDERATIONS:
+#    - Use secrets management (Docker secrets, Vault)
+#    - Enable HTTPS for Airflow webserver
+#    - Use CeleryExecutor for scaling (add Redis)
+#    - Set up monitoring (Prometheus, Grafana)
+#    - Configure backup strategy for PostgreSQL and DuckDB
