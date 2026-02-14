@@ -46,6 +46,7 @@ This project demonstrates a complete **modern data stack** implementation for pe
 ## ✨ Key Features
 
 ### 📊 Analytics Dashboard
+
 - Weekly/monthly training volume trends
 - Heart rate zone distribution
 - Pace progression analysis
@@ -53,18 +54,21 @@ This project demonstrates a complete **modern data stack** implementation for pe
 - Sleep and recovery metrics
 
 ### 🤖 AI-Powered Coaching
+
 - Personalized training recommendations based on your data
 - Injury risk assessment using training load ratios
 - Race performance predictions
 - Nutrition and recovery suggestions
 
 ### 🔄 Automated Data Pipeline
+
 - Daily sync from Garmin Connect (activities + health metrics)
 - Data quality tests with dbt
 - Incremental models for efficiency
 - Error handling and retry logic
 
 ### 📈 Advanced Metrics
+
 - Rolling 4-week averages (distance, load, pace)
 - Heart rate variability (HRV) trends
 - Training Stress Score (TSS) calculation
@@ -108,6 +112,7 @@ This project demonstrates a complete **modern data stack** implementation for pe
 ```
 
 **Key Design Principles**:
+
 - **Medallion Architecture**: Bronze (raw) → Silver (cleaned) → Gold (analytics)
 - **Separation of Concerns**: Ingestion, transformation, presentation are decoupled
 - **Reproducibility**: All transformations in SQL/dbt, versioned in Git
@@ -117,17 +122,17 @@ This project demonstrates a complete **modern data stack** implementation for pe
 
 ## 🛠️ Tech Stack
 
-| Layer | Technologies |
-|-------|-------------|
-| **Orchestration** | Apache Airflow, Docker |
-| **Data Warehouse** | DuckDB |
-| **Transformation** | dbt-core, SQL |
-| **Data Processing** | Python, Pandas |
-| **Visualization** | Streamlit, Plotly |
-| **AI/LLM** | Anthropic Claude API, LangChain |
-| **API Integration** | garminconnect, requests |
-| **Testing** | pytest, dbt tests |
-| **CI/CD** | GitHub Actions (planned) |
+| Layer               | Technologies                    |
+| ------------------- | ------------------------------- |
+| **Orchestration**   | Apache Airflow, Docker          |
+| **Data Warehouse**  | DuckDB                          |
+| **Transformation**  | dbt-core, SQL                   |
+| **Data Processing** | Python, Pandas                  |
+| **Visualization**   | Streamlit, Plotly               |
+| **AI/LLM**          | Anthropic Claude API, LangChain |
+| **API Integration** | garminconnect, requests         |
+| **Testing**         | pytest, dbt tests               |
+| **CI/CD**           | GitHub Actions (planned)        |
 
 ---
 
@@ -163,12 +168,14 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed documentation.
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/yourusername/running-performance-analyzer.git
    cd running-performance-analyzer
    ```
 
 2. **Set up environment variables**
+
    ```bash
    cp .env.example .env
    # Edit .env and add your credentials:
@@ -178,22 +185,26 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed documentation.
    ```
 
 3. **Create required directories**
+
    ```bash
    mkdir -p airflow/{dags,logs,plugins}
    mkdir -p data/{duckdb,raw,exports}
    ```
 
 4. **Set Airflow UID** (Linux/Mac)
+
    ```bash
    echo -e "AIRFLOW_UID=$(id -u)" >> .env
    ```
 
 5. **Start services with Docker Compose**
+
    ```bash
    docker-compose up -d
    ```
 
 6. **Wait for initialization** (first time only)
+
    ```bash
    docker-compose logs -f airflow-init
    # Wait for "Airflow initialization complete!"
@@ -210,12 +221,14 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed documentation.
 ### Initial Data Sync
 
 1. **Trigger Garmin ingestion DAG** in Airflow UI
+
    - Go to http://localhost:8080
    - Find `garmin_to_duckdb` DAG
    - Click "Trigger DAG"
    - This will fetch your last 365 days of data
 
 2. **Run dbt transformations**
+
    - The DAG automatically runs dbt after ingestion
    - Or manually: `docker-compose exec airflow-scheduler dbt run --project-dir /opt/airflow/dbt_project`
 
@@ -307,6 +320,7 @@ SELECT * FROM mart_training_analysis LIMIT 10;
 ## 🗺️ Roadmap
 
 ### Phase 1: MVP ✅ (Current)
+
 - [x] Garmin API integration
 - [x] Basic dbt models
 - [x] Streamlit dashboard
@@ -314,18 +328,21 @@ SELECT * FROM mart_training_analysis LIMIT 10;
 - [x] AI Coach (basic)
 
 ### Phase 2: Enhanced Analytics
+
 - [ ] Strava integration
 - [ ] Advanced ML models (injury prediction, performance forecasting)
 - [ ] Race strategy planner
 - [ ] Weather correlation analysis
 
 ### Phase 3: Multi-User & Cloud
+
 - [ ] User authentication
 - [ ] Cloud deployment (AWS/GCP)
 - [ ] BigQuery/Snowflake migration option
 - [ ] API for third-party integrations
 
 ### Phase 4: Advanced AI
+
 - [ ] RAG for running knowledge base
 - [ ] Computer vision for form analysis (video upload)
 - [ ] Multi-agent system for comprehensive coaching
@@ -354,11 +371,12 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 ## 👤 About
 
-**Author**: Your Name  
-**LinkedIn**: [Your Profile](https://linkedin.com/in/yourprofile)  
-**Email**: your.email@example.com
+**Author**: Jeremy Marchandeau  
+**LinkedIn**: [Jeremy Marchandeau](https://linkedin.com/in/jeremymarchandeau)  
+**Email**: hey@jeremymarchandeau.com
 
 **Context**: This project was built as part of my transition from web development to data/AI engineering. It demonstrates proficiency in:
+
 - Analytics Engineering (dbt, data modeling)
 - Data Engineering (Airflow, API integration, DuckDB)
 - AI Engineering (LLM integration, prompt engineering)

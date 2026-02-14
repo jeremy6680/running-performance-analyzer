@@ -114,64 +114,72 @@ running-performance-analyzer/
 ## Rôle de chaque dossier
 
 ### `/airflow` - Orchestration
+
 - **Objectif** : Automatiser l'ingestion quotidienne et l'exécution dbt
 - **Technos** : Apache Airflow
 - **Déploiement** : Docker container
 
 ### `/dbt_project` - Transformations données
+
 - **Objectif** : Transformer données brutes (bronze) → analytics (gold)
 - **Technos** : dbt-core, SQL
 - **Connexion** : DuckDB
 
 ### `/ingestion` - Récupération données
+
 - **Objectif** : Connecteurs API Garmin/Strava/Apple Health
 - **Technos** : Python, requests, garminconnect library
 - **Output** : Données brutes dans DuckDB
 
 ### `/ai_engine` - Intelligence artificielle
+
 - **Objectif** : Analyse LLM, recommandations personnalisées
 - **Technos** : LangChain, Claude API, embeddings
 - **Input** : Données marts dbt
 
 ### `/streamlit_app` - Interface utilisateur
+
 - **Objectif** : Dashboard web interactif
 - **Technos** : Streamlit, Plotly, Pandas
 - **Connexion** : Lecture DuckDB
 
 ### `/data` - Stockage local
+
 - **Objectif** : Base de données DuckDB, fichiers temporaires
 - **Important** : `.duckdb` versionné, `/raw` et `/exports` ignorés
 
 ### `/notebooks` - Exploration
+
 - **Objectif** : Analyses exploratoires, tests API, expérimentations ML
 - **Technos** : Jupyter, Pandas, Plotly
 
 ### `/tests` - Qualité code
+
 - **Objectif** : Tests automatisés (pytest)
 - **Coverage** : Ingestion, transformations, AI
 
 ## Fichiers racine importants
 
-| Fichier | Rôle |
-|---------|------|
-| `docker-compose.yml` | Définition services (Airflow, volumes) |
-| `requirements.txt` | Dépendances Python globales |
-| `.env` | Variables d'environnement (credentials API) |
-| `.gitignore` | Exclusions Git (credentials, data brute) |
-| `README.md` | Documentation principale du projet |
+| Fichier              | Rôle                                        |
+| -------------------- | ------------------------------------------- |
+| `docker-compose.yml` | Définition services (Airflow, volumes)      |
+| `requirements.txt`   | Dépendances Python globales                 |
+| `.env`               | Variables d'environnement (credentials API) |
+| `.gitignore`         | Exclusions Git (credentials, data brute)    |
+| `README.md`          | Documentation principale du projet          |
 
 ## Flux de données
 
 ```
 1. INGESTION (Airflow)
    Garmin API → garmin_connector.py → DuckDB (raw_garmin_activities)
-   
+
 2. TRANSFORMATION (dbt)
    raw_* → staging → intermediate → marts
-   
+
 3. ANALYTICS (Streamlit)
    marts → Pandas → Plotly charts
-   
+
 4. AI (LLM)
    marts → llm_analyzer.py → Recommandations
 ```
