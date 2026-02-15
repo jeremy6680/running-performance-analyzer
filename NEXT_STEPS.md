@@ -1,5 +1,12 @@
 # 🏃 Running Performance Analyzer - Next Steps
 
+> **📅 Latest Update (Feb 16, 2025):** Phase 2 Silver Layer COMPLETE! ✅
+>
+> - dbt project configured and working
+> - `stg_garmin_activities.sql` complete (482 lines, 31/32 tests passing)
+> - Sources documented (15/15 tests passing)
+> - **Next:** Create Gold layer marts
+
 ## ✅ What We've Accomplished So Far
 
 ### Phase 1: Project Setup & Data Ingestion (COMPLETED ✓)
@@ -63,17 +70,17 @@ Transform raw data (bronze) into clean, analytics-ready datasets (silver/gold) u
 
 **2.1 - dbt Setup**
 
-- [ ] Initialize dbt project: `dbt init dbt_project`
-- [ ] Configure `profiles.yml` for DuckDB connection
-- [ ] Set up `dbt_project.yml` with project configs
-- [ ] Create `sources.yml` to reference bronze tables
+- [x] Initialize dbt project: `dbt init dbt_project`
+- [x] Configure `profiles.yml` for DuckDB connection
+- [x] Set up `dbt_project.yml` with project configs
+- [x] Create `sources.yml` to reference bronze tables
 
 **2.2 - Silver Layer (Staging Models)**
 Create clean, typed, deduplicated versions of raw data.
 
 Models to create:
 
-- [ ] `stg_garmin_activities.sql`
+- [x] `stg_garmin_activities.sql`
   - Clean activity data
   - Add calculated fields (pace zones, effort levels)
   - Handle nulls and data quality issues
@@ -114,14 +121,14 @@ Models to create:
 
 **2.4 - dbt Testing & Documentation**
 
-- [ ] Add schema tests (not_null, unique, relationships)
-- [ ] Add custom data tests (value ranges, logical checks)
-- [ ] Write descriptions for all models and columns
+- [x] Add schema tests (not_null, unique, relationships)
+- [x] Add custom data tests (value ranges, logical checks)
+- [x] Write descriptions for all models and columns
 - [ ] Generate dbt docs: `dbt docs generate && dbt docs serve`
 
 **2.5 - dbt Deployment**
 
-- [ ] Create `dbt run` command for full refresh
+- [x] Create `dbt run` command for full refresh
 - [ ] Set up incremental models for efficiency
 - [ ] Add post-hooks for data quality checks
 
