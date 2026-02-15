@@ -1,0 +1,313 @@
+# =============================================================================
+# Staging Models - Schema Documentation & Tests
+# =============================================================================
+# This file documents all staging models (silver layer) and defines data tests.
+#
+# Tests ensure data quality:
+# - unique: Column has no duplicates
+# - not_null: Column has no null values
+# - accepted_values: Column only contains specific values
+# - relationships: Foreign key integrity
+#
+# Run tests: dbt test --select staging
+# =============================================================================
+
+version: 2
+
+models:
+  # ---------------------------------------------------------------------------
+  # Model: stg_garmin_activities
+  # ---------------------------------------------------------------------------
+  - name: stg_garmin_activities
+    description: >
+      Cleaned and standardized Garmin activity data from bronze layer.
+
+      This staging model transforms raw API data into analytics-ready format:
+      - Adds calculated fields (pace zones, effort levels, training load)
+      - Handles null values and data quality issues
+      - Filters out invalid activities (zero distance, very short duration)
+      - Categorizes activities (races, terrain, time of day)
+
+      Grain: One row per activity
+
+      Materialization: VIEW (fast to rebuild, feeds marts)
+
+      Upstream: source.garmin.raw_garmin_activities
+
+      Downstream: 
+        - mart_training_analysis
+        - mart_race_performance
+
+    # Model-level metadata
+    meta:
+      owner: jeremy
+      layer: silver
+      domain: fitness_activities
+
+    # Model-level tests
+    tests:
+      # Ensure we have data (at least 1 row)
+      - dbt_utils.expression_is_true:
+          expression: "COUNT(*) > 0"
+          config:
+            severity: error
+
+    # Column definitions
+    columns:
+      # ===== Identifiers =====
+      - name: activity_id
+        description: Unique identifier for each activity (from Garmin API)
+        data_tests:
+          - unique
+          - not_null
+
+      - name: activity_name
+        description: User-defined name for the activity (can be null)
+
+      # ===== Temporal Fields =====
+      - name: activity_date
+        description: >
+          Date of the activity (DATE type, not timestamp).
+          Used for grouping by day/week/month.
+        data_tests:
+          - not_null
+
+      - name: activity_start_time
+        description: Exact start time of activity in local timezone (TIMESTAMP)
+
+      - name: start_hour
+        description: Hour of day when activity started (0-23)
+
+      - name: day_of_week
+        description: Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+
+      # ===== Activity Metadata =====
+      - name: activity_type
+        description: Type of activity (running, cycling, swimming, etc)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                [
+                  "running",
+                  "cycling",
+                  "swimming",
+                  "walking",
+                  "hiking",
+                  "strength_training",
+                  "yoga",
+                  "other",
+                ]
+
+      - name: device_name
+        description: Garmin device used to record the activity
+
+      - name: location_name
+        description: Location or city where activity took place
+
+      # ===== Distance =====
+      - name: distance_km
+        description: Total distance in kilometers
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                severity: error
+
+      # ===== Duration =====
+      - name: duration_minutes
+        description: Total duration including pauses (minutes)
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 5" # Minimum 5 minutes (filtered in model)
+
+      - name: moving_duration_minutes
+        description: Active duration excluding pauses (minutes)
+
+      - name: pause_duration_minutes
+        description: Time spent paused (total - moving)
+
+      # ===== Speed & Pace =====
+      - name: avg_pace_min_km
+        description: Average pace in minutes per kilometer
+
+      - name: avg_speed_kmh
+        description: Average speed in kilometers per hour
+
+      - name: max_speed_kmh
+        description: Maximum speed reached in kilometers per hour
+
+      # ===== Heart Rate =====
+      - name: avg_heart_rate
+        description: Average heart rate in beats per minute (bpm)
+
+      - name: max_heart_rate
+        description: Maximum heart rate reached (bpm)
+
+      - name: hr_delta
+        description: Difference between max and average HR (indicates intensity variation)
+
+      # ===== Elevation =====
+      - name: elevation_gain_m
+        description: Total elevation gain in meters
+
+      - name: elevation_loss_m
+        description: Total elevation loss in meters
+
+      - name: net_elevation_m
+        description: Net elevation change (gain - loss)
+
+      - name: elevation_range_m
+        description: Elevation range (max - min)
+
+      # ===== Training Metrics =====
+      - name: calories
+        description: Estimated calories burned
+
+      - name: aerobic_training_effect
+        description: Garmin's aerobic training effect score (0-5)
+
+      - name: anaerobic_training_effect
+        description: Garmin's anaerobic training effect score (0-5)
+
+      - name: total_training_effect
+        description: Sum of aerobic and anaerobic training effects
+
+      - name: training_load
+        description: >
+          Calculated training load (simplified TRIMP).
+          Duration × intensity factor based on heart rate.
+          Higher = more stressful workout.
+
+      # ===== Cadence =====
+      - name: avg_cadence_spm
+        description: Average cadence in steps per minute
+
+      - name: max_cadence_spm
+        description: Maximum cadence in steps per minute
+
+      # ===== Calculated Fields (Business Logic) =====
+      - name: is_race
+        description: >
+          Boolean flag indicating if this is a race.
+          Based on activity name keywords or round distances (5K, 10K, etc).
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: race_distance_category
+        description: >
+          Race distance category for races: '5K', '10K', 'Half Marathon', 
+          'Marathon', 'Ultra'. NULL for non-race activities.
+        data_tests:
+          - accepted_values:
+              values: ["5K", "10K", "Half Marathon", "Marathon", "Ultra"]
+              config:
+                severity: warn
+                where: "race_distance_category IS NOT NULL"
+
+      - name: pace_zone
+        description: >
+          Pace category: 'elite' (< 4:00/km), 'fast' (4:00-5:00), 
+          'moderate' (5:00-6:00), 'easy' (6:00-7:00), 'recovery' (> 7:00)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                ["elite", "fast", "moderate", "easy", "recovery", "no_data"]
+
+      - name: hr_zone
+        description: >
+          Heart rate training zone (zone 1-5).
+          Based on simplified absolute HR values.
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                [
+                  "zone_1_recovery",
+                  "zone_2_base",
+                  "zone_3_tempo",
+                  "zone_4_threshold",
+                  "zone_5_max",
+                  "no_hr_data",
+                ]
+
+      - name: effort_level
+        description: >
+          Overall effort level combining pace and HR: 'easy', 'moderate', 'hard'
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["easy", "moderate", "hard", "unknown"]
+
+      - name: terrain_type
+        description: >
+          Terrain classification based on elevation gain:
+          'flat' (< 50m), 'rolling' (50-150m), 'hilly' (150-300m), 
+          'mountainous' (> 300m)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["flat", "rolling", "hilly", "mountainous", "unknown"]
+
+      - name: time_of_day
+        description: >
+          When activity occurred: 'morning' (5-11), 'afternoon' (12-17),
+          'evening' (18-21), 'night' (22-4)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["morning", "afternoon", "evening", "night"]
+
+      - name: is_weekend
+        description: Boolean flag - TRUE if activity on Saturday or Sunday
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== Data Quality Flags =====
+      - name: has_data_quality_issues
+        description: >
+          Flag for activities with missing critical data 
+          (zero distance or duration)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: is_very_short
+        description: Flag for activities under 5 minutes (likely errors)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: has_unrealistic_pace
+        description: Flag for unrealistic pace (< 3 or > 15 min/km)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== Audit Fields =====
+      - name: loaded_at
+        description: Timestamp when data was loaded into bronze layer
+        data_tests:
+          - not_null
+
+      - name: updated_at
+        description: Timestamp of last update
+
+# =============================================================================
+# Custom Tests (Optional - Advanced)
+# =============================================================================
+# You can add custom generic tests here later, such as:
+# - Check that avg_heart_rate is always <= max_heart_rate
+# - Validate that moving_duration <= total_duration
+# - Ensure distance/duration = speed (within tolerance)
+# =============================================================================
