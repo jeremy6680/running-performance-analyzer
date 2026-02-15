@@ -1,0 +1,175 @@
+# =============================================================================
+# dbt Project Configuration - Running Performance Analyzer
+# =============================================================================
+# This file defines the core configuration for our dbt project.
+# It controls how models are built, tested, and materialized in DuckDB.
+#
+# Key Concepts:
+# - Materialization: How SQL models are stored (view, table, incremental)
+# - Schema: Database schema where models are created
+# - Tests: Data quality checks (uniqueness, nulls, relationships)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Project Identity
+# -----------------------------------------------------------------------------
+name: "running_performance_analyzer"
+version: "1.0.0"
+config-version: 2
+
+# -----------------------------------------------------------------------------
+# Project Paths
+# -----------------------------------------------------------------------------
+# These paths are relative to this dbt_project.yml file
+profile: "running_performance_analyzer" # Must match profile name in profiles.yml
+
+model-paths: ["models"] # Where SQL model files are located
+analysis-paths: ["analyses"] # Ad-hoc queries (optional, not run by dbt run)
+test-paths: ["tests"] # Custom data tests
+seed-paths: ["seeds"] # CSV reference data
+macro-paths: ["macros"] # Reusable SQL functions
+snapshot-paths: ["snapshots"] # Slowly changing dimensions (future use)
+
+target-path: "target" # Compiled SQL output (git ignored)
+clean-targets: # Folders cleaned by dbt clean
+  - "target"
+  - "dbt_packages"
+
+# -----------------------------------------------------------------------------
+# Global Model Defaults
+# -----------------------------------------------------------------------------
+# These settings apply to all models unless overridden
+models:
+  running_performance_analyzer:
+    # Default materialization: Use views for development speed
+    # Views are fast to build but slower to query
+    +materialized: view
+
+    # Enable dbt meta fields for all models
+    # These add metadata columns to help with debugging
+    +meta:
+      owner: "jeremy"
+      project: "running_performance_analyzer"
+
+    # -------------------------------------------------------------------------
+    # STAGING MODELS (Silver Layer)
+    # -------------------------------------------------------------------------
+    # Purpose: Clean, typed, deduplicated versions of raw data
+    # Materialization: VIEWS (fast refresh, low storage)
+    # Naming convention: stg_<source>_<entity>
+    staging:
+      +materialized: view
+      +schema: silver # Creates schema: main_silver in DuckDB
+      +tags: ["staging", "silver"]
+
+      # Performance tip: Enable query result caching in DuckDB
+      +meta:
+        description: "Cleaned and typed data from bronze layer"
+
+    # -------------------------------------------------------------------------
+    # INTERMEDIATE MODELS (Optional)
+    # -------------------------------------------------------------------------
+    # Purpose: Complex business logic, joins, calculations
+    # Materialization: VIEWS (used by marts, not queried directly)
+    # Naming convention: int_<business_entity>
+    intermediate:
+      +materialized: view
+      +schema: silver # Same schema as staging
+      +tags: ["intermediate", "silver"]
+
+    # -------------------------------------------------------------------------
+    # MARTS (Gold Layer)
+    # -------------------------------------------------------------------------
+    # Purpose: Analytics-ready datasets for dashboards and AI
+    # Materialization: TABLES (fast queries, used frequently)
+    # Naming convention: mart_<business_area>
+    marts:
+      +materialized: table # TABLES for performance!
+      +schema: gold # Creates schema: main_gold in DuckDB
+      +tags: ["marts", "gold"]
+
+      # Marts are expensive to build but fast to query
+      # Perfect for Streamlit dashboard and AI engine
+      +meta:
+        description: "Analytics-ready datasets for consumption"
+
+# -----------------------------------------------------------------------------
+# Seeds Configuration
+# -----------------------------------------------------------------------------
+# Seeds are CSV files loaded as tables (e.g., reference data)
+# Example: race_goals.csv, heart_rate_zones.csv
+seeds:
+  running_performance_analyzer:
+    +schema: reference
+    +tags: ["seeds", "reference"]
+
+# -----------------------------------------------------------------------------
+# Tests Configuration
+# -----------------------------------------------------------------------------
+# Global test settings
+tests:
+  running_performance_analyzer:
+    +severity: warn # Options: warn, error
+    # warn = log failures, continue
+    # error = stop on test failure
+
+# -----------------------------------------------------------------------------
+# Snapshots Configuration (Future Use)
+# -----------------------------------------------------------------------------
+# Snapshots track historical changes (Type 2 slowly changing dimensions)
+# Example: Track how your VO2max changes over time
+snapshots:
+  running_performance_analyzer:
+    +target_schema: snapshots
+    +unique_key: id
+    +strategy: timestamp
+    +updated_at: updated_at
+
+# -----------------------------------------------------------------------------
+# Vars - Project Variables
+# -----------------------------------------------------------------------------
+# Use vars for dynamic values in models
+# Access in SQL: {{ var('days_lookback') }}
+vars:
+  # How many days of historical data to process in incremental models
+  days_lookback: 90
+
+  # Training load calculation window (weeks)
+  training_load_window: 4
+
+  # Minimum activity duration (seconds) to include in analysis
+  min_activity_duration: 300 # 5 minutes
+
+  # Heart rate zones (% of max HR) - adjust based on your max HR
+  hr_zone_1_max: 0.60 # 60% max HR
+  hr_zone_2_max: 0.70 # 70% max HR
+  hr_zone_3_max: 0.80 # 80% max HR
+  hr_zone_4_max: 0.90 # 90% max HR
+  # Zone 5 = anything above 90%
+
+# -----------------------------------------------------------------------------
+# On-run-start & On-run-end Hooks
+# -----------------------------------------------------------------------------
+# SQL commands run before/after dbt run
+# Useful for logging, cleanup, or custom logic
+
+# on-run-start:
+#   - "{{ log('Starting dbt run at ' ~ run_started_at, info=True) }}"
+
+# on-run-end:
+#   - "{{ log('dbt run completed at ' ~ run_started_at, info=True) }}"
+
+# =============================================================================
+# End of Configuration
+# =============================================================================
+# Next steps:
+# 1. Create profiles.yml (database connection)
+# 2. Create sources.yml (define bronze tables)
+# 3. Create staging models (stg_garmin_activities.sql, etc.)
+#
+# Run commands:
+#   dbt debug          # Test connection
+#   dbt run            # Build all models
+#   dbt test           # Run all tests
+#   dbt docs generate  # Generate documentation
+# =============================================================================

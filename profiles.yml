@@ -1,0 +1,195 @@
+# =============================================================================
+# dbt Profiles Configuration - Database Connection Settings
+# =============================================================================
+# This file defines how dbt connects to your data warehouse (DuckDB).
+#
+# IMPORTANT SECURITY NOTE:
+# - This file can contain sensitive info (passwords, API keys)
+# - For this project, it's safe (local DuckDB file, no passwords)
+# - For cloud databases, NEVER commit this file to Git!
+#   Use environment variables instead: {{ env_var('DB_PASSWORD') }}
+#
+# File Location:
+# - Default: ~/.dbt/profiles.yml (user home directory)
+# - Project-specific: Can be in project root (we'll use this)
+# - Override with: dbt run --profiles-dir ./
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Profile Name (must match dbt_project.yml)
+# -----------------------------------------------------------------------------
+running_performance_analyzer:
+  # ---------------------------------------------------------------------------
+  # Target Configuration
+  # ---------------------------------------------------------------------------
+  # Targets are different environments (dev, prod, test)
+  # Use: dbt run --target prod
+  # Default target (if not specified in command)
+  target: dev
+
+  # ---------------------------------------------------------------------------
+  # Outputs - Environment-Specific Settings
+  # ---------------------------------------------------------------------------
+  outputs:
+    # -------------------------------------------------------------------------
+    # DEV - Local Development Environment
+    # -------------------------------------------------------------------------
+    # This is where you'll work 99% of the time
+    dev:
+      type: duckdb
+
+      # Path to your DuckDB database file
+      # This path is relative to WHERE YOU RUN dbt COMMANDS
+      # If you run dbt from project root: data/duckdb/running_analytics.duckdb
+      # If you run dbt from dbt_project/: ../data/duckdb/running_analytics.duckdb
+      # We'll use the project root approach (cleaner)
+      path: "data/duckdb/running_analytics.duckdb"
+
+      # Default schema for models (bronze layer lives here)
+      # dbt will create:
+      # - main (default)
+      # - main_silver (staging models)
+      # - main_gold (marts)
+      # - main_reference (seeds)
+      schema: main
+
+      # Number of parallel threads for model execution
+      # DuckDB is fast, so we can run multiple models at once
+      # Recommended: number of CPU cores (adjust based on your machine)
+      threads: 4
+
+      # DuckDB-specific settings
+      # These enhance performance and enable advanced features
+      extensions:
+        - httpfs # Read files from HTTP/S3 (future: cloud data)
+        - parquet # Read/write Parquet files (columnar format)
+        - json # JSON parsing functions
+
+      settings:
+        # Memory limit (optional, prevents crashes on large datasets)
+        # Default: 80% of RAM
+        # memory_limit: '4GB'
+
+        # Number of threads for query execution within DuckDB
+        # Default: all available cores
+        # threads: 4
+
+        # Preserve insertion order (useful for time-series data)
+        preserve_insertion_order: false
+
+    # -------------------------------------------------------------------------
+    # PROD - Production Environment (Future Use)
+    # -------------------------------------------------------------------------
+    # When you deploy to cloud (AWS, GCP, Streamlit Cloud)
+    # You'll have a separate production database
+    #
+    # Example for cloud deployment:
+    # prod:
+    #   type: duckdb
+    #   path: 's3://my-bucket/running_analytics.duckdb'
+    #   schema: main
+    #   threads: 8
+    #   extensions:
+    #     - httpfs
+    #   settings:
+    #     s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+    #     s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+
+    # -------------------------------------------------------------------------
+    # TEST - Testing Environment (Optional)
+    # -------------------------------------------------------------------------
+    # For running tests on sample data without affecting dev database
+    #
+    # test:
+    #   type: duckdb
+    #   path: '../data/duckdb/test_analytics.duckdb'
+    #   schema: main
+    #   threads: 2
+
+# =============================================================================
+# Alternative Database Adapters (For Future Migration)
+# =============================================================================
+# If you later decide to migrate from DuckDB to a cloud warehouse,
+# here are example configurations for popular platforms:
+
+# -----------------------------------------------------------------------------
+# PostgreSQL Example
+# -----------------------------------------------------------------------------
+# running_performance_analyzer:
+#   target: dev
+#   outputs:
+#     dev:
+#       type: postgres
+#       host: localhost
+#       port: 5432
+#       user: jeremy
+#       password: "{{ env_var('POSTGRES_PASSWORD') }}"
+#       dbname: running_analytics
+#       schema: public
+#       threads: 4
+
+# -----------------------------------------------------------------------------
+# Snowflake Example
+# -----------------------------------------------------------------------------
+# running_performance_analyzer:
+#   target: dev
+#   outputs:
+#     dev:
+#       type: snowflake
+#       account: your_account
+#       user: jeremy
+#       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+#       role: ANALYST
+#       database: RUNNING_ANALYTICS
+#       warehouse: COMPUTE_WH
+#       schema: PUBLIC
+#       threads: 8
+
+# -----------------------------------------------------------------------------
+# BigQuery Example
+# -----------------------------------------------------------------------------
+# running_performance_analyzer:
+#   target: dev
+#   outputs:
+#     dev:
+#       type: bigquery
+#       method: service-account
+#       keyfile: /path/to/service-account.json
+#       project: your-gcp-project
+#       dataset: running_analytics
+#       threads: 4
+#       location: US
+
+# =============================================================================
+# Using Environment Variables (Best Practice for Secrets)
+# =============================================================================
+# For production deployments, use environment variables for sensitive data:
+#
+# password: "{{ env_var('DB_PASSWORD') }}"
+# api_key: "{{ env_var('GARMIN_API_KEY') }}"
+#
+# Set in terminal:
+#   export DB_PASSWORD='your_secure_password'
+#
+# Or in .env file (already git-ignored in your project):
+#   DB_PASSWORD=your_secure_password
+#
+# dbt automatically loads env vars from .env files in project root!
+
+# =============================================================================
+# Next Steps After Creating This File
+# =============================================================================
+# 1. Test connection: dbt debug
+#    (This will validate the connection to DuckDB)
+#
+# 2. If successful, you'll see:
+#    ✓ Connection test: OK
+#    ✓ All checks passed!
+#
+# 3. If errors, check:
+#    - Path to DuckDB file is correct
+#    - DuckDB file exists (created by your ingestion scripts)
+#    - No typos in profile name
+#
+# 4. Ready to create models!
+# =============================================================================
