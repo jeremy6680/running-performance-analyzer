@@ -170,7 +170,7 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed documentation.
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/yourusername/running-performance-analyzer.git
+   git clone https://github.com/jeremy6680/running-performance-analyzer.git
    cd running-performance-analyzer
    ```
 
@@ -221,14 +221,12 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed documentation.
 ### Initial Data Sync
 
 1. **Trigger Garmin ingestion DAG** in Airflow UI
-
    - Go to http://localhost:8080
    - Find `garmin_to_duckdb` DAG
    - Click "Trigger DAG"
    - This will fetch your last 365 days of data
 
 2. **Run dbt transformations**
-
    - The DAG automatically runs dbt after ingestion
    - Or manually: `docker-compose exec airflow-scheduler dbt run --project-dir /opt/airflow/dbt_project`
 
