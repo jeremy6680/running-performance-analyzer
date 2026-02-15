@@ -1,0 +1,92 @@
+# Running Performance Analyzer - Minimal Requirements
+# 
+# Use this for local development without Airflow
+# Airflow will be installed via Docker later
+#
+# Install with: pip install -r requirements-minimal.txt
+#
+# Python version: >=3.10
+
+# =============================================================================
+# CORE DATA PROCESSING
+# =============================================================================
+pandas==2.2.0
+numpy==1.26.3
+duckdb==0.10.0
+python-dateutil==2.8.2
+pytz==2024.1
+
+# =============================================================================
+# API CONNECTORS
+# =============================================================================
+garminconnect==0.2.13
+# stravalib==1.6.0  # Commented out: conflicts with pydantic 2.x (will add later if needed)
+requests==2.31.0
+httpx==0.26.0
+
+# =============================================================================
+# DATA TRANSFORMATION (dbt)
+# =============================================================================
+dbt-core==1.7.7
+dbt-duckdb==1.7.2
+
+# =============================================================================
+# AI / LLM
+# =============================================================================
+anthropic==0.18.1
+langchain==0.1.6
+langchain-anthropic==0.1.4
+langchain-community==0.0.19
+
+# =============================================================================
+# WEB APPLICATION (Streamlit)
+# =============================================================================
+streamlit==1.31.0
+plotly==5.18.0
+altair==5.2.0
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+python-dotenv==1.0.1
+pydantic==2.6.0
+pydantic-settings==2.1.0
+loguru==0.7.2
+tqdm==4.66.1
+PyYAML==6.0.1
+orjson==3.9.13
+
+# =============================================================================
+# DATA VALIDATION & QUALITY
+# =============================================================================
+# great-expectations==0.18.8  # Commented out: conflicts with altair 5.x (will add later if needed)
+jsonschema==4.21.1
+
+# =============================================================================
+# FILE FORMATS
+# =============================================================================
+openpyxl==3.1.2
+
+# =============================================================================
+# PERFORMANCE
+# =============================================================================
+ujson==5.9.0
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+cryptography==42.0.2
+
+# =============================================================================
+# NOTES
+# =============================================================================
+# Airflow is NOT included here because:
+# 1. Not needed for initial development
+# 2. Better to use via Docker (see docker-compose.yml)
+# 3. Has compatibility issues with Python 3.13+
+#
+# When you're ready for orchestration, use:
+# docker-compose up -d
+#
+# For development dependencies, also install:
+# pip install -r requirements-dev.txt
