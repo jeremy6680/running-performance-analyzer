@@ -1,0 +1,302 @@
+# =============================================================================
+# dbt Sources Configuration - Bronze Layer Tables (CORRECTED)
+# =============================================================================
+# This file defines raw data tables (bronze layer) as "sources" in dbt.
+# Column names match the actual DuckDB schema from your ingestion scripts.
+#
+# Usage in models:
+#   SELECT * FROM {{ source('garmin', 'raw_garmin_activities') }}
+# =============================================================================
+
+version: 2
+
+sources:
+  - name: garmin
+    description: >
+      Raw data ingested from Garmin Connect API.
+      Includes activities (runs, rides, swims) and daily health metrics.
+      Data loaded via Python scripts in `ingestion/` folder.
+
+    database: running_analytics
+    schema: main
+
+    meta:
+      owner: jeremy
+      data_source: garmin_connect_api
+      ingestion_tool: python_garmin_connector
+      update_frequency: daily
+
+    # Freshness monitoring
+    freshness:
+      warn_after:
+        count: 2
+        period: day
+      error_after:
+        count: 7
+        period: day
+
+    loaded_at_field: inserted_at
+
+    # -------------------------------------------------------------------------
+    # Table: raw_garmin_activities
+    # -------------------------------------------------------------------------
+    tables:
+      - name: raw_garmin_activities
+        description: >
+          Individual workout activities from Garmin Connect.
+          Each row = one activity (run, ride, swim, etc).
+
+        meta:
+          primary_key: activity_id
+          grain: one_row_per_activity
+          contains_pii: false
+
+        columns:
+          # ===== Identifiers =====
+          - name: activity_id
+            description: Unique identifier for the activity (Garmin's internal ID)
+            data_tests:
+              - unique
+              - not_null
+
+          - name: activity_name
+            description: User-defined name for the activity (can be null)
+
+          # ===== Temporal Fields =====
+          - name: activity_date
+            description: Date of the activity (TIMESTAMP format)
+            data_tests:
+              - not_null
+
+          - name: start_time_local
+            description: Start time in local timezone
+            data_tests:
+              - not_null
+
+          - name: start_time_gmt
+            description: Start time in GMT/UTC timezone
+
+          # ===== Activity Type =====
+          - name: activity_type
+            description: Type of activity (running, cycling, swimming, etc)
+            data_tests:
+              - not_null
+              - accepted_values:
+                  config:
+                    severity: warn
+                  values:
+                    - running
+                    - cycling
+                    - swimming
+                    - walking
+                    - hiking
+                    - strength_training
+                    - yoga
+                    - other
+
+          # ===== Distance =====
+          - name: distance_m
+            description: Total distance in meters
+            data_tests:
+              - not_null
+
+          - name: distance_km
+            description: Total distance in kilometers (converted from meters)
+
+          # ===== Duration =====
+          - name: duration_seconds
+            description: Total duration in seconds (includes pauses)
+            data_tests:
+              - not_null
+
+          - name: duration_minutes
+            description: Total duration in minutes (converted from seconds)
+
+          - name: moving_duration_seconds
+            description: Active duration (excludes pauses/stops)
+
+          # ===== Speed & Pace =====
+          - name: avg_speed_mps
+            description: Average speed in meters per second
+
+          - name: max_speed_mps
+            description: Maximum speed in meters per second
+
+          - name: avg_pace_min_km
+            description: Average pace in minutes per kilometer
+
+          # ===== Heart Rate =====
+          - name: avg_heart_rate
+            description: Average heart rate in bpm (null if no HR monitor)
+
+          - name: max_heart_rate
+            description: Maximum heart rate in bpm
+
+          # ===== Elevation =====
+          - name: elevation_gain_m
+            description: Total elevation gain in meters
+
+          - name: elevation_loss_m
+            description: Total elevation loss in meters
+
+          - name: min_elevation_m
+            description: Minimum elevation in meters
+
+          - name: max_elevation_m
+            description: Maximum elevation in meters
+
+          # ===== Calories & Training Effect =====
+          - name: calories
+            description: Estimated calories burned
+
+          - name: aerobic_training_effect
+            description: Garmin's aerobic training effect score (0-5)
+
+          - name: anaerobic_training_effect
+            description: Garmin's anaerobic training effect score (0-5)
+
+          # ===== Cadence =====
+          - name: avg_cadence
+            description: Average cadence (steps per minute for running)
+
+          - name: max_cadence
+            description: Maximum cadence
+
+          # ===== Device & Location =====
+          - name: device_name
+            description: Name of the Garmin device used
+
+          - name: location_name
+            description: Location/city of the activity
+
+          # ===== Audit Fields =====
+          - name: inserted_at
+            description: Timestamp when record was loaded into DuckDB
+            data_tests:
+              - not_null
+
+          - name: updated_at
+            description: Timestamp when record was last updated
+
+      # -----------------------------------------------------------------------
+      # Table: raw_garmin_daily_health
+      # -----------------------------------------------------------------------
+      - name: raw_garmin_daily_health
+        description: >
+          Daily aggregated health metrics from Garmin Connect.
+          Each row = one calendar day of health data.
+
+        meta:
+          primary_key: date
+          grain: one_row_per_day
+          contains_pii: false
+
+        columns:
+          # ===== Identifier =====
+          - name: date
+            description: Calendar date for this health summary (DATE format)
+            data_tests:
+              - unique
+              - not_null
+
+          # ===== Steps & Movement =====
+          - name: steps
+            description: Total steps walked/run during the day
+            data_tests:
+              - not_null
+
+          - name: distance_m
+            description: Total distance moved in meters (steps + activities)
+
+          - name: active_calories
+            description: Calories burned through activity (excludes BMR)
+
+          - name: bmr_calories
+            description: Basal Metabolic Rate calories (resting)
+
+          # ===== Heart Rate =====
+          - name: resting_heart_rate
+            description: Resting heart rate in bpm (lower = better fitness)
+            data_tests:
+              - not_null
+
+          - name: min_heart_rate
+            description: Lowest heart rate (usually during deep sleep)
+
+          - name: max_heart_rate
+            description: Highest heart rate during the day
+
+          # ===== HRV (Heart Rate Variability) =====
+          - name: hrv_avg
+            description: Average HRV in milliseconds (higher = better recovery)
+
+          - name: hrv_status
+            description: Garmin's HRV status (balanced, unbalanced, low, poor)
+
+          # ===== Sleep Metrics =====
+          - name: sleep_seconds
+            description: Total sleep duration in seconds
+            data_tests:
+              - not_null
+
+          - name: deep_sleep_seconds
+            description: Duration of deep sleep (slow-wave sleep)
+
+          - name: light_sleep_seconds
+            description: Duration of light sleep
+
+          - name: rem_sleep_seconds
+            description: Duration of REM sleep
+
+          - name: awake_seconds
+            description: Time spent awake during sleep period
+
+          # ===== Stress =====
+          - name: stress_avg
+            description: Average stress level (0-100 scale)
+
+          # ===== Body Battery =====
+          - name: body_battery_charged
+            description: Body Battery gained during the day (rest/sleep)
+
+          - name: body_battery_drained
+            description: Body Battery lost during the day (activity/stress)
+
+          - name: body_battery_high
+            description: Highest Body Battery level (0-100)
+
+          - name: body_battery_low
+            description: Lowest Body Battery level (0-100)
+
+          # ===== Respiration =====
+          - name: avg_waking_respiration_rate
+            description: Average breaths per minute while awake
+
+          - name: avg_sleep_respiration_rate
+            description: Average breaths per minute during sleep
+
+          # ===== Audit Fields =====
+          - name: inserted_at
+            description: Timestamp when record was loaded into DuckDB
+            data_tests:
+              - not_null
+
+          - name: updated_at
+            description: Timestamp when record was last updated
+
+# =============================================================================
+# How to Use This File
+# =============================================================================
+# 1. Reference sources in staging models:
+#    SELECT * FROM {{ source('garmin', 'raw_garmin_activities') }}
+#
+# 2. Run source freshness checks:
+#    dbt source freshness --project-dir dbt_project --profiles-dir .
+#
+# 3. Test source data quality:
+#    dbt test --project-dir dbt_project --profiles-dir . --select 'source:*'
+#
+# 4. View lineage:
+#    dbt docs generate --project-dir dbt_project --profiles-dir .
+#    dbt docs serve
+# =============================================================================
