@@ -8,8 +8,8 @@ import duckdb
 from pathlib import Path
 from datetime import datetime
 
-# Database path
-DB_PATH = Path(__file__).parent / "data" / "duckdb" / "running_analytics.duckdb"
+# Database path (go up one level from scripts/ to project root, then into data/)
+DB_PATH = Path(__file__).parent.parent / "data" / "duckdb" / "running_analytics.duckdb"
 
 def validate_mart_training_summary():
     """
