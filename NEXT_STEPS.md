@@ -1,9 +1,10 @@
 # 🏃 Running Performance Analyzer - Next Steps
 
-> **📅 Latest Update (Feb 16, 2025):** Phase 2 Silver Layer COMPLETE! ✅
+> **📅 Latest Update (Feb 16, 2026):** Phase 2 Silver Layer COMPLETE! ✅
 >
-> - dbt project configured and working
-> - `stg_garmin_activities.sql` complete (482 lines, 31/32 tests passing)
+> - `stg_garmin_activities.sql` complete (31/32 tests passing)
+> - `stg_garmin_health.sql` complete (27/27 tests passing)
+> - `int_unified_activities.sql` complete (29/29 tests passing)
 > - Sources documented (15/15 tests passing)
 > - **Next:** Create Gold layer marts
 
@@ -84,15 +85,15 @@ Models to create:
   - Clean activity data
   - Add calculated fields (pace zones, effort levels)
   - Handle nulls and data quality issues
-- [ ] `stg_garmin_health.sql`
+- [x] `stg_garmin_health.sql`
   - Clean health metrics
   - Convert units (seconds to hours for sleep)
   - Add date dimensions
 
-- [ ] `int_unified_activities.sql` (intermediate)
+- [x] `int_unified_activities.sql` (intermediate)
   - Merge activities from multiple sources (Garmin + Strava future)
   - Standardize activity types
-  - Add business logic
+  - Add business logic (training_readiness, ran_while_tired, workout_context)
 
 **2.3 - Gold Layer (Marts)**
 Create business-focused analytical models.
@@ -421,11 +422,17 @@ running-performance-analyzer/
 │   ├── dags/
 │   └── requirements.txt
 │
-├── dbt_project/                   # 🎯 NEXT PHASE
-│   ├── dbt_project.yml           # ⏳ TODO: Initialize
+├── dbt_project/                   # 🎯 IN PROGRESS
+│   ├── dbt_project.yml           # ✅
 │   ├── models/
-│   │   ├── staging/              # ⏳ TODO: Create
-│   │   ├── intermediate/         # ⏳ TODO: Create
+│   │   ├── sources.yml           # ✅ 15/15 tests passing
+│   │   ├── staging/              # ✅ COMPLETE
+│   │   │   ├── stg_garmin_activities.sql  # ✅ 31/32 tests
+│   │   │   ├── stg_garmin_health.sql      # ✅ 27/27 tests
+│   │   │   └── schema_staging.yml
+│   │   ├── intermediate/         # ✅ COMPLETE
+│   │   │   ├── int_unified_activities.sql # ✅ 29/29 tests
+│   │   │   └── schema_intermediate.yml
 │   │   └── marts/                # ⏳ TODO: Create
 │
 ├── ingestion/                     # ✅ COMPLETE
