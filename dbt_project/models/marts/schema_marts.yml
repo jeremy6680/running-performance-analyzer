@@ -317,3 +317,234 @@ models:
           - not_null
           - accepted_values:
               values: ["Increasing", "Decreasing", "Stable"]
+
+  - name: mart_race_performance
+    description: |
+      Race-specific performance analysis with PR tracking and trends.
+
+      **Grain**: One row per race
+
+      **Purpose**:
+      - Track personal records (PRs) for each distance
+      - Analyze race performance vs training pace
+      - Monitor performance trends over time
+      - Assess race readiness and recovery
+
+      **Business Logic**:
+      - PR = fastest time for each distance category
+      - Training context = 30 days before race
+      - Race readiness based on training volume + recovery
+      - Performance rating based on % off PR
+
+      **Use Cases**:
+      - Race calendar and results tracking
+      - PR progression analysis
+      - Race pacing strategy evaluation
+      - Training effectiveness assessment
+
+    columns:
+      # Identifiers
+      - name: race_id
+        description: Unique race identifier (same as activity_id)
+        tests:
+          - unique
+          - not_null
+
+      - name: race_date
+        description: Date of the race
+        tests:
+          - not_null
+
+      - name: race_year
+        description: Year of the race
+        tests:
+          - not_null
+
+      - name: race_season
+        description: Season when race occurred (Spring/Summer/Fall/Winter)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Spring", "Summer", "Fall", "Winter"]
+
+      # Race Details
+      - name: race_distance_category
+        description: Standardized race distance (5K, 10K, Half Marathon, Marathon, Ultra)
+        tests:
+          - accepted_values:
+              values: ["5K", "10K", "Half Marathon", "Marathon", "Ultra"]
+
+      - name: distance_km
+        description: Actual race distance in kilometers
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 3.0
+              max_value: 100.0
+
+      - name: duration_minutes
+        description: Race finish time in minutes
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 10.0
+              max_value: 600.0
+
+      - name: pace_min_per_km
+        description: Average race pace (min/km)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 3.0
+              max_value: 10.0
+
+      # Performance Metrics
+      - name: is_personal_record
+        description: True if this race set a PR for this distance
+        tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: pr_pace_min_per_km
+        description: Current PR pace for this distance category
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 3.0
+              max_value: 10.0
+
+      - name: minutes_off_pr
+        description: |
+          How many minutes slower than PR.
+          0.0 if this IS the PR, positive if slower.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0.0
+              max_value: 120.0
+
+      - name: pct_off_pr
+        description: Percentage slower than PR (0% if this is the PR)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0.0
+              max_value: 100.0
+
+      - name: performance_rating
+        description: |
+          Overall performance classification:
+          - PR: Personal record
+          - Near PR: Within 5% of PR
+          - Good: Within 10% of PR
+          - Fair: Within 20% of PR
+          - Off Day: More than 20% off PR
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["PR", "Near PR", "Good", "Fair", "Off Day"]
+
+      # Training Context
+      - name: avg_training_pace_30d
+        description: Average training pace in 30 days before race
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 3.0
+              max_value: 15.0
+
+      - name: total_training_distance_30d
+        description: Total training distance in 30 days before race (km)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0.0
+              max_value: 500.0
+
+      - name: training_runs_30d
+        description: Number of training runs in 30 days before race
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 50
+
+      - name: race_vs_training_pace_diff
+        description: |
+          Race pace minus training pace (min/km).
+          Negative = raced faster than training.
+          Positive = raced slower than training.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: -5.0
+              max_value: 5.0
+
+      - name: race_readiness_score
+        description: |
+          Race readiness score (1-10) based on:
+          - Training volume (30 days)
+          - Days since last race
+          - Training consistency
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 10
+
+      - name: pacing_assessment
+        description: |
+          How race pace compared to training:
+          - Much faster than training
+          - Faster than training
+          - Consistent with training
+          - Slower than training
+          - No training data
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - "Much faster than training"
+                - "Faster than training"
+                - "Consistent with training"
+                - "Slower than training"
+                - "No training data"
+
+      # Race Intervals & Recovery
+      - name: days_since_last_race
+        description: |
+          Days since previous race.
+          Null for first race.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 365
+
+      - name: recovery_status
+        description: |
+          Recovery assessment:
+          - First race: No previous race
+          - Quick turnaround: < 7 days
+          - Standard recovery: 7-14 days
+          - Well rested: > 14 days
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - "First race"
+                - "Quick turnaround"
+                - "Standard recovery"
+                - "Well rested"
+
+      # Performance Trends
+      - name: pace_ma_3_races
+        description: |
+          3-race moving average pace for this distance.
+          Helps identify improving/declining trends.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 3.0
+              max_value: 10.0
+
+      - name: pace_change_vs_last_race
+        description: |
+          Pace change vs previous race at this distance (min/km).
+          Negative = faster, Positive = slower.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: -3.0
+              max_value: 3.0
