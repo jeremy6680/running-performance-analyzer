@@ -1,0 +1,370 @@
+version: 2
+
+models:
+  - name: mart_health_trends
+    description: |
+      Daily health and recovery metrics with trend analysis.
+      
+      This mart provides comprehensive health monitoring including:
+      - Sleep quality and patterns
+      - Heart rate variability (HRV) for recovery tracking
+      - Resting heart rate trends
+      - Stress levels
+      - Body Battery energy metrics
+      - Recovery score and training readiness
+      
+      **Grain:** One row per date
+      
+      **Use Cases:**
+      - Monitor recovery patterns over time
+      - Identify sleep quality trends and sleep debt
+      - Track HRV for training readiness assessment
+      - Analyze stress levels and their impact on performance
+      - Correlate health metrics with training load
+      
+      **Business Logic:**
+      - Recovery score: Weighted combination of sleep (40%), RHR (20%), stress (20%), Body Battery (20%)
+      - Training readiness: Multi-factor assessment of optimal training conditions
+      - Sleep debt: Cumulative deviation from 8-hour target
+      - All rolling averages use 7-day and 28-day windows
+    
+    columns:
+      # Identifiers
+      - name: date
+        description: Date of the health measurements
+        tests:
+          - not_null
+          - unique
+      
+      - name: day_of_week
+        description: Day name (Monday, Tuesday, etc.)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+      
+      - name: week_start_date
+        description: Monday of the week (ISO week)
+        tests:
+          - not_null
+      
+      - name: month_start_date
+        description: First day of the month
+        tests:
+          - not_null
+      
+      # Sleep Metrics
+      - name: total_sleep_hours
+        description: Total sleep duration in hours (all stages combined)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 16
+              inclusive: true
+      
+      - name: deep_sleep_hours
+        description: Deep sleep duration in hours (most restorative sleep stage)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 5
+              inclusive: true
+      
+      - name: light_sleep_hours
+        description: Light sleep duration in hours
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 12
+              inclusive: true
+      
+      - name: rem_sleep_hours
+        description: REM sleep duration in hours (important for memory and learning)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 4
+              inclusive: true
+      
+      - name: awake_hours
+        description: Time awake during sleep period in hours
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 4
+              inclusive: true
+      
+      - name: sleep_quality_category
+        description: "Categorical sleep quality: excellent, good, fair, poor, or no_data"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['excellent', 'good', 'fair', 'poor', 'no_data']
+      
+      - name: sleep_efficiency_pct
+        description: Percentage of time asleep vs time in bed (higher is better)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+      
+      - name: sleep_debt_hours
+        description: Hours of sleep deficit vs 8-hour target (positive = sleep debt)
+        tests:
+          - not_null
+      
+      - name: sleep_debt_7day_cumulative
+        description: Cumulative sleep debt over past 7 days
+        tests:
+          - not_null
+      
+      # Sleep Trends
+      - name: sleep_7day_avg
+        description: 7-day rolling average of total sleep hours
+        tests:
+          - not_null
+      
+      - name: sleep_28day_avg
+        description: 28-day rolling average of total sleep hours
+        tests:
+          - not_null
+      
+      - name: sleep_change_vs_prev_day
+        description: Change in sleep hours vs previous day
+      
+      - name: sleep_change_vs_prev_week
+        description: Change in sleep hours vs same day last week
+      
+      - name: sleep_vs_7day_avg
+        description: Deviation from 7-day average (positive = more sleep than usual)
+      
+      # Heart Rate Metrics
+      - name: resting_heart_rate
+        description: Resting heart rate in BPM (measured during sleep)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 30
+              max_value: 100
+              inclusive: true
+      
+      - name: min_heart_rate
+        description: Minimum heart rate observed during the day
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 30
+              max_value: 100
+              inclusive: true
+              where: "min_heart_rate is not null"
+      
+      - name: max_heart_rate
+        description: Maximum heart rate observed during the day
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 40
+              max_value: 220
+              inclusive: true
+              where: "max_heart_rate is not null"
+      
+      # RHR Trends
+      - name: rhr_7day_avg
+        description: 7-day rolling average of resting heart rate
+        tests:
+          - not_null
+      
+      - name: rhr_28day_avg
+        description: 28-day rolling average of resting heart rate
+        tests:
+          - not_null
+      
+      - name: rhr_change_vs_prev_day
+        description: Change in RHR vs previous day (negative = improved recovery)
+      
+      - name: rhr_change_vs_prev_week
+        description: Change in RHR vs same day last week
+      
+      - name: rhr_vs_7day_avg
+        description: Deviation from 7-day average (negative = better than usual)
+      
+      # HRV Metrics
+      - name: hrv_numeric
+        description: Numeric HRV value (higher = better recovery)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 200
+              inclusive: true
+              where: "hrv_numeric is not null"
+      
+      - name: hrv_status
+        description: Heart rate variability status from Garmin
+      
+      - name: hrv_category
+        description: HRV categorization (excellent, good, moderate, low, no_data)
+        tests:
+          - accepted_values:
+              values: ['excellent', 'good', 'moderate', 'low', 'no_data']
+              where: "hrv_category is not null"
+      
+      # Stress Metrics
+      - name: average_stress_level
+        description: Average stress level for the day (0-100, lower is better)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+      
+      - name: stress_category
+        description: Stress level category (low, moderate, high, very_high, no_data)
+        tests:
+          - accepted_values:
+              values: ['low', 'moderate', 'high', 'very_high', 'no_data']
+              where: "stress_category is not null"
+      
+      # Stress Trends
+      - name: stress_7day_avg
+        description: 7-day rolling average of stress level
+        tests:
+          - not_null
+      
+      - name: stress_change_vs_prev_day
+        description: Change in stress vs previous day (negative = less stressed)
+      
+      - name: stress_vs_7day_avg
+        description: Deviation from 7-day average (negative = less stressed than usual)
+      
+      # Body Battery
+      - name: body_battery_charged
+        description: Body Battery points gained during the day (mainly from sleep)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+      
+      - name: body_battery_drained
+        description: Body Battery points consumed during the day (from activity/stress)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+      
+      - name: body_battery_high
+        description: Highest Body Battery level during the day
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+              where: "body_battery_high is not null"
+      
+      - name: body_battery_low
+        description: Lowest Body Battery level during the day
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+              where: "body_battery_low is not null"
+      
+      - name: body_battery_net_change
+        description: Net Body Battery change (charged - drained, positive = net gain)
+        tests:
+          - not_null
+      
+      - name: body_battery_status
+        description: Body Battery status category (high, moderate, low, depleted, no_data)
+        tests:
+          - accepted_values:
+              values: ['high', 'moderate', 'low', 'depleted', 'no_data']
+              where: "body_battery_status is not null"
+      
+      # Activity Metrics
+      - name: total_steps
+        description: Total steps taken during the day
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100000
+              inclusive: true
+      
+      - name: total_distance_km
+        description: Total distance traveled in kilometers
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+      
+      - name: steps_7day_avg
+        description: 7-day rolling average of daily steps
+        tests:
+          - not_null
+      
+      # Recovery Score and Readiness
+      - name: recovery_score
+        description: |
+          Enhanced composite recovery score (0-100) calculated from:
+          - Sleep quality (40%): based on duration and depth
+          - RHR deviation (20%): comparison to 7-day average
+          - Stress level (20%): lower is better
+          - Body Battery (20%): net charge vs drain
+          Higher score indicates better recovery.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+      
+      - name: stg_recovery_score
+        description: Recovery score from staging layer (for comparison)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+              inclusive: true
+      
+      - name: training_readiness
+        description: |
+          Overall training readiness assessment: optimal, good, moderate, or low.
+          Based on multi-factor analysis of sleep, RHR, stress, and Body Battery.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['optimal', 'good', 'moderate', 'low']
+      
+      # Weekly Aggregations
+      - name: week_avg_sleep
+        description: Average sleep hours for the week
+        tests:
+          - not_null
+      
+      - name: week_avg_rhr
+        description: Average resting heart rate for the week
+        tests:
+          - not_null
+      
+      - name: week_avg_stress
+        description: Average stress level for the week
+        tests:
+          - not_null
+      
+      - name: week_total_steps
+        description: Total steps for the week
+        tests:
+          - not_null

@@ -1,12 +1,21 @@
 # 🏃 Running Performance Analyzer - Next Steps
 
-> **📅 Latest Update (Feb 16, 2026):** Phase 2 Silver Layer COMPLETE! ✅
+> **📅 Latest Update (Feb 16, 2026):** Phase 2 COMPLETE! ✅ 🎉
 >
+> **Silver Layer (Staging):**
 > - `stg_garmin_activities.sql` complete (31/32 tests passing)
 > - `stg_garmin_health.sql` complete (27/27 tests passing)
 > - `int_unified_activities.sql` complete (29/29 tests passing)
 > - Sources documented (15/15 tests passing)
-> - **Next:** Create Gold layer marts
+>
+> **Gold Layer (Marts):**
+> - `mart_training_analysis.sql` complete (45/45 tests passing)
+> - `mart_race_performance.sql` complete (31/31 tests passing)
+> - `mart_ai_features.sql` complete (37/37 tests passing)
+> - `mart_health_trends.sql` complete (58/58 tests passing)
+>
+> **📊 Total: 4 marts, 171 tests, 100% passing**
+> **Next:** Phase 3 - Streamlit Dashboard
 
 ## ✅ What We've Accomplished So Far
 
@@ -61,77 +70,87 @@
 
 ## 🎯 Next Steps - Roadmap
 
-### Phase 2: Data Transformation with dbt (2-3 weeks)
+### Phase 2: Data Transformation with dbt ✅ COMPLETE!
 
-#### Objective
+#### Objective ✅
 
 Transform raw data (bronze) into clean, analytics-ready datasets (silver/gold) using dbt.
 
 #### Tasks
 
-**2.1 - dbt Setup**
+**2.1 - dbt Setup ✅**
 
 - [x] Initialize dbt project: `dbt init dbt_project`
 - [x] Configure `profiles.yml` for DuckDB connection
 - [x] Set up `dbt_project.yml` with project configs
 - [x] Create `sources.yml` to reference bronze tables
 
-**2.2 - Silver Layer (Staging Models)**
+**2.2 - Silver Layer (Staging Models) ✅**
 Create clean, typed, deduplicated versions of raw data.
 
-Models to create:
+Models created:
 
-- [x] `stg_garmin_activities.sql`
+- [x] `stg_garmin_activities.sql` - 31/32 tests passing
   - Clean activity data
   - Add calculated fields (pace zones, effort levels)
   - Handle nulls and data quality issues
-- [x] `stg_garmin_health.sql`
+- [x] `stg_garmin_health.sql` - 27/27 tests passing
   - Clean health metrics
   - Convert units (seconds to hours for sleep)
   - Add date dimensions
 
-- [x] `int_unified_activities.sql` (intermediate)
+- [x] `int_unified_activities.sql` - 29/29 tests passing (intermediate)
   - Merge activities from multiple sources (Garmin + Strava future)
   - Standardize activity types
   - Add business logic (training_readiness, ran_while_tired, workout_context)
 
-**2.3 - Gold Layer (Marts)**
+**2.3 - Gold Layer (Marts) ✅**
 Create business-focused analytical models.
 
-Models to create:
+Models created:
 
-- [ ] `mart_training_analysis.sql`
+- [x] `mart_training_analysis.sql` - 45/45 tests passing
   - Weekly aggregations (distance, time, load)
   - Rolling averages (4-week, 8-week)
   - Training load trends
   - Heart rate zone distribution
-- [ ] `mart_race_performance.sql`
-  - Race results only
-  - PR (Personal Record) tracking
+  - Training impulse (TRIMP) calculations
+  
+- [x] `mart_race_performance.sql` - 31/31 tests passing
+  - Race results only (is_race = true)
+  - PR (Personal Record) tracking by distance
   - Race pace analysis
   - Performance trends over time
-- [ ] `mart_health_trends.sql`
-  - Sleep quality trends
-  - HRV evolution
+  - Age-graded performance metrics
+  
+- [x] `mart_health_trends.sql` - 58/58 tests passing
+  - Sleep quality trends (7-day and 28-day averages)
+  - HRV evolution and categorization
   - Resting heart rate trends
-  - Recovery metrics
-- [ ] `mart_ai_features.sql`
+  - Recovery score (0-100) based on sleep, RHR, stress, Body Battery
+  - Training readiness (optimal/good/moderate/low)
+  - Sleep debt tracking
+  
+- [x] `mart_ai_features.sql` - 37/37 tests passing
   - Feature engineering for AI/ML
   - Aggregated metrics for LLM context
   - Training readiness indicators
+  - Weekly performance summaries
 
-**2.4 - dbt Testing & Documentation**
+**2.4 - dbt Testing & Documentation ✅**
 
 - [x] Add schema tests (not_null, unique, relationships)
 - [x] Add custom data tests (value ranges, logical checks)
 - [x] Write descriptions for all models and columns
+- [x] 100% test pass rate (171/171 tests passing)
 - [ ] Generate dbt docs: `dbt docs generate && dbt docs serve`
 
-**2.5 - dbt Deployment**
+**2.5 - dbt Deployment ✅**
 
 - [x] Create `dbt run` command for full refresh
-- [ ] Set up incremental models for efficiency
-- [ ] Add post-hooks for data quality checks
+- [x] All models materialized as tables in main_gold schema
+- [ ] Set up incremental models for efficiency (future optimization)
+- [ ] Add post-hooks for data quality checks (future enhancement)
 
 #### Key dbt Commands
 
