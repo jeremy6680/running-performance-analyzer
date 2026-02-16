@@ -303,6 +303,246 @@ models:
       - name: updated_at
         description: Timestamp of last update
 
+  # ---------------------------------------------------------------------------
+  # Model: stg_garmin_health
+  # ---------------------------------------------------------------------------
+  - name: stg_garmin_health
+    description: >
+      Cleaned and standardized Garmin daily health data from bronze layer.
+
+      This staging model transforms raw daily health metrics into analytics-ready format:
+      - Converts sleep/duration fields from seconds to hours
+      - Converts daily distance from meters to kilometers
+      - Adds date dimensions (day of week, week number, month, weekend flag)
+      - Calculates derived metrics (sleep efficiency, total calories, body battery net)
+      - Categorizes sleep quality, stress levels, body battery, and HRV
+      - Computes a composite recovery score (0-100)
+
+      Grain: One row per calendar day
+
+      Materialization: VIEW (fast to rebuild, feeds marts)
+
+      Upstream: source.garmin.raw_garmin_daily_health
+
+      Downstream:
+        - mart_health_trends
+        - mart_ai_features
+
+    meta:
+      owner: jeremy
+      layer: silver
+      domain: health_recovery
+
+    columns:
+      # ===== Identifier =====
+      - name: health_date
+        description: Calendar date for this daily health summary (DATE)
+        data_tests:
+          - unique
+          - not_null
+
+      # ===== Date Dimensions =====
+      - name: day_of_week
+        description: Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+
+      - name: week_of_year
+        description: ISO week number (1-53)
+
+      - name: month_number
+        description: Month number (1-12)
+
+      - name: year_number
+        description: Four-digit year
+
+      - name: is_weekend
+        description: TRUE if health_date falls on Saturday or Sunday
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== Steps & Movement =====
+      - name: steps
+        description: Total steps walked/run during the day (0 when no data)
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: daily_distance_km
+        description: Total distance moved in kilometers (from steps + activities)
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: steps_goal_met
+        description: TRUE if 10,000+ steps were recorded
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== Calories =====
+      - name: active_calories
+        description: Calories burned through activity (excludes BMR)
+
+      - name: bmr_calories
+        description: Basal Metabolic Rate calories (resting)
+
+      - name: total_calories
+        description: Total daily calories (active + BMR)
+
+      # ===== Heart Rate =====
+      - name: resting_heart_rate
+        description: Resting heart rate in bpm (lower = better fitness)
+
+      - name: min_heart_rate
+        description: Lowest heart rate of the day (usually nocturnal)
+
+      - name: max_heart_rate
+        description: Highest heart rate of the day
+
+      - name: has_missing_hr
+        description: TRUE if resting heart rate data is unavailable
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== HRV =====
+      - name: hrv_avg
+        description: Average HRV in milliseconds (higher = better recovery)
+
+      - name: hrv_status
+        description: >
+          Garmin's HRV classification (balanced, unbalanced, low, poor).
+          NULL when HRV data is unavailable.
+
+      - name: hrv_category
+        description: >
+          HRV quality bucket: 'excellent' (>= 60ms), 'good' (40-59ms),
+          'moderate' (20-39ms), 'low' (< 20ms), 'no_data'
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["excellent", "good", "moderate", "low", "no_data"]
+
+      # ===== Sleep (hours) =====
+      - name: sleep_hours
+        description: Total sleep duration in hours
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: deep_sleep_hours
+        description: Duration of deep (slow-wave) sleep in hours
+
+      - name: light_sleep_hours
+        description: Duration of light sleep in hours
+
+      - name: rem_sleep_hours
+        description: Duration of REM sleep in hours
+
+      - name: awake_hours
+        description: Time spent awake during sleep period in hours
+
+      - name: sleep_efficiency_pct
+        description: >
+          Percentage of time-in-bed actually spent asleep.
+          sleep_seconds / (sleep_seconds + awake_seconds) × 100.
+          NULL if no sleep data.
+
+      - name: deep_sleep_pct
+        description: Deep sleep as a percentage of total sleep time
+
+      - name: rem_sleep_pct
+        description: REM sleep as a percentage of total sleep time
+
+      - name: sleep_quality
+        description: >
+          Sleep quality bucket based on total hours:
+          'poor' (< 5h), 'fair' (5-6h), 'good' (6-7h), 'excellent' (>= 7h), 'no_data'
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["poor", "fair", "good", "excellent", "no_data"]
+
+      - name: has_missing_sleep
+        description: TRUE if sleep data is unavailable for this day
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== Stress =====
+      - name: stress_avg
+        description: Average daily stress score (0-100)
+
+      - name: stress_category
+        description: >
+          Stress level bucket: 'low' (0-25), 'moderate' (26-50),
+          'high' (51-75), 'very_high' (> 75), 'no_data'
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["low", "moderate", "high", "very_high", "no_data"]
+
+      # ===== Body Battery =====
+      - name: body_battery_charged
+        description: Body Battery gained during the day (rest/sleep)
+
+      - name: body_battery_drained
+        description: Body Battery lost during the day (activity/stress)
+
+      - name: body_battery_high
+        description: Highest Body Battery level during the day (0-100)
+
+      - name: body_battery_low
+        description: Lowest Body Battery level during the day (0-100)
+
+      - name: body_battery_net
+        description: >
+          Net Body Battery change (charged - drained).
+          Positive = net recovery day; negative = net fatigue day.
+
+      - name: body_battery_status
+        description: >
+          Peak energy level bucket: 'high' (>= 75), 'moderate' (50-74),
+          'low' (25-49), 'depleted' (< 25), 'no_data'
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["high", "moderate", "low", "depleted", "no_data"]
+
+      # ===== Respiration =====
+      - name: avg_waking_respiration_rate
+        description: Average breaths per minute while awake
+
+      - name: avg_sleep_respiration_rate
+        description: Average breaths per minute during sleep
+
+      # ===== Composite Score =====
+      - name: recovery_score
+        description: >
+          Composite recovery score (0-100) combining sleep, stress,
+          body battery, and resting heart rate. Higher = better recovered.
+          Use for trends, not as an absolute clinical measure.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+
+      # ===== Audit Fields =====
+      - name: loaded_at
+        description: Timestamp when record was loaded into bronze layer
+        data_tests:
+          - not_null
+
+      - name: updated_at
+        description: Timestamp of last update
+
 # =============================================================================
 # Custom Tests (Optional - Advanced)
 # =============================================================================
