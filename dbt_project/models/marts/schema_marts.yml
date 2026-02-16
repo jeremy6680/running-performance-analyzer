@@ -1,0 +1,319 @@
+version: 2
+
+models:
+  - name: mart_training_summary
+    description: |
+      Weekly training summary with aggregated metrics and rolling averages.
+
+      **Grain**: One row per week (Monday to Sunday)
+
+      **Purpose**: 
+      - Track training volume and consistency over time
+      - Monitor rolling averages to identify trends
+      - Compare current week to historical performance
+      - Analyze heart rate zone distribution
+      - Assess training load progression
+
+      **Business Logic**:
+      - Week starts on Monday (ISO 8601 standard)
+      - Rolling averages use current week + N-1 previous weeks
+      - Percentage changes compare current week to comparison period
+      - Pace is distance-weighted average (longer runs have more influence)
+      - Heart rate zones show percentage of activities in each zone
+
+      **Use Cases**:
+      - Streamlit dashboard: Training volume trends chart
+      - AI Coach: Context for training recommendations
+      - Injury prevention: Detect rapid load increases
+      - Performance analysis: Identify training peaks/tapers
+
+    columns:
+      # Dimensions
+      - name: week_start_date
+        description: |
+          Monday of the week (ISO 8601 week start).
+          This is the primary key for the mart.
+        tests:
+          - unique
+          - not_null
+
+      - name: year
+        description: Calendar year of the week
+        tests:
+          - not_null
+
+      - name: week_number
+        description: |
+          Week number of the year (1-53).
+          Follows ISO 8601 week numbering.
+        tests:
+          - not_null
+
+      - name: week_label
+        description: |
+          Human-readable week label (e.g., "Week 7, 2026").
+          Useful for chart labels and display.
+        tests:
+          - not_null
+
+      # Weekly Totals
+      - name: total_activities
+        description: |
+          Total number of running activities during the week.
+          Includes all activity types (training runs, races, recovery runs).
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      - name: total_races
+        description: Number of races run during the week (subset of total_activities)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      - name: total_distance_km
+        description: |
+          Sum of all running distances for the week (kilometers).
+          Key metric for training volume.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 300
+
+      - name: avg_distance_per_activity_km
+        description: Average distance per activity (total_distance / total_activities)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 50
+
+      - name: max_distance_km
+        description: Longest run of the week
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 50
+
+      - name: total_duration_minutes
+        description: Sum of all activity durations for the week (minutes)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1800
+
+      - name: avg_duration_per_activity_minutes
+        description: Average duration per activity
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 300
+
+      # Pace & Heart Rate
+      - name: avg_pace_min_per_km
+        description: |
+          Distance-weighted average pace for the week (min/km).
+          Formula: sum(pace * distance) / sum(distance)
+          This gives more weight to longer runs.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 3.0
+              max_value: 15.0
+
+      - name: avg_heart_rate_bpm
+        description: |
+          Average heart rate across all activities with HR data.
+          Null if no activities had HR data this week.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 100
+              max_value: 200
+
+      - name: max_heart_rate_bpm
+        description: Highest recorded heart rate during the week
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 100
+              max_value: 220
+
+      # Elevation
+      - name: total_elevation_gain_m
+        description: Sum of elevation gain for all activities (meters)
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      - name: avg_elevation_per_activity_m
+        description: Average elevation gain per activity
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 2000
+
+      # Effort & Training Load
+      - name: avg_effort_level
+        description: |
+          Average effort level for the week (1-10 scale).
+          Based on pace zone classification.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 1
+              max_value: 10
+
+      - name: total_training_load
+        description: |
+          Sum of training load scores for the week.
+          Higher values = higher training stress.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      # Heart Rate Zone Distribution (as percentages)
+      - name: pct_zone1_easy
+        description: Percentage of activities in Zone 1 (Easy, <70% max HR)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      - name: pct_zone2_moderate
+        description: Percentage of activities in Zone 2 (Moderate, 70-80% max HR)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      - name: pct_zone3_tempo
+        description: Percentage of activities in Zone 3 (Tempo, 80-87% max HR)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      - name: pct_zone4_threshold
+        description: Percentage of activities in Zone 4 (Threshold, 87-93% max HR)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      - name: pct_zone5_max
+        description: Percentage of activities in Zone 5 (Max, >93% max HR)
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
+
+      # 4-Week Rolling Averages
+      - name: rolling_4wk_avg_distance_km
+        description: |
+          4-week rolling average of weekly distance (current + 3 previous weeks).
+          Smooths out week-to-week variations to show true trend.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 300
+
+      - name: rolling_4wk_avg_activities
+        description: 4-week rolling average of activities per week
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 20
+
+      - name: rolling_4wk_avg_duration_minutes
+        description: 4-week rolling average of total weekly duration
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1800
+
+      - name: rolling_4wk_avg_training_load
+        description: 4-week rolling average of training load
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      # 8-Week Rolling Averages
+      - name: rolling_8wk_avg_distance_km
+        description: |
+          8-week rolling average of weekly distance.
+          Provides longer-term trend perspective.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 300
+
+      - name: rolling_8wk_avg_activities
+        description: 8-week rolling average of activities per week
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 20
+
+      - name: rolling_8wk_avg_duration_minutes
+        description: 8-week rolling average of total weekly duration
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1800
+
+      - name: rolling_8wk_avg_training_load
+        description: 8-week rolling average of training load
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+
+      # Comparison Metrics
+      - name: distance_vs_prev_week_pct
+        description: |
+          Percentage change in distance vs previous week.
+          Positive = increased distance, Negative = decreased distance.
+          Null for first week of data.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: -100
+              max_value: 500
+
+      - name: activities_vs_prev_week_pct
+        description: |
+          Percentage change in activity count vs previous week.
+          Null for first week of data.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: -100
+              max_value: 500
+
+      - name: distance_vs_4wk_avg_pct
+        description: |
+          Percentage change vs 4-week rolling average.
+          Helps identify if current week is above/below recent trend.
+          Important for injury risk assessment (rapid increases are risky).
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: -100
+              max_value: 500
+
+      # Trend Indicators
+      - name: distance_trend_4wk
+        description: |
+          Simple trend classification: 'Increasing', 'Decreasing', or 'Stable'.
+          Compares current week to 4-week average.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Increasing", "Decreasing", "Stable"]
+
+      - name: training_load_trend_4wk
+        description: |
+          Training load trend classification: 'Increasing', 'Decreasing', or 'Stable'.
+          Compares current week to 4-week average.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Increasing", "Decreasing", "Stable"]
