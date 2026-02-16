@@ -1,0 +1,303 @@
+# =============================================================================
+# Intermediate Models - Schema Documentation & Tests
+# =============================================================================
+# Intermediate models sit between staging (cleaned source data) and marts
+# (analytics-ready tables). They handle cross-domain joins and complex
+# business logic that would bloat individual mart models.
+#
+# Run tests: dbt test --select intermediate
+# =============================================================================
+
+version: 2
+
+models:
+  # ---------------------------------------------------------------------------
+  # Model: int_unified_activities
+  # ---------------------------------------------------------------------------
+  - name: int_unified_activities
+    description: >
+      Enriches each Garmin activity with same-day health context and adds
+      cross-domain business logic labels.
+
+      Key additions over stg_garmin_activities:
+      - Health context: recovery_score, sleep quality, HRV, stress, body battery
+        for the day of each activity (LEFT JOIN on activity_date)
+      - training_readiness: high / moderate / low based on recovery_score
+      - ran_while_tired: flag for hard effort on poor recovery day
+      - workout_context: well_executed / normal / overreaching / easy_day
+      - data_source column: always 'garmin' today, enables future Strava UNION
+
+      Grain: One row per activity
+
+      Materialization: VIEW (same silver schema as staging)
+
+      Upstream:
+        - stg_garmin_activities
+        - stg_garmin_health
+
+      Downstream:
+        - mart_training_analysis
+        - mart_race_performance
+        - mart_ai_features
+
+    meta:
+      owner: jeremy
+      layer: silver
+      domain: unified_activities
+
+    columns:
+      # ===== Source Tag =====
+      - name: data_source
+        description: >
+          Origin of the activity record. Always 'garmin' today.
+          Will include 'strava' once Strava integration is added.
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["garmin", "strava"]
+
+      # ===== Activity Identity =====
+      - name: activity_id
+        description: Unique identifier for the activity (from source system)
+        data_tests:
+          - unique
+          - not_null
+
+      - name: activity_name
+        description: User-defined activity name (can be null)
+
+      - name: activity_date
+        description: Date of the activity (DATE)
+        data_tests:
+          - not_null
+
+      - name: activity_start_time
+        description: Exact start time in local timezone (TIMESTAMP)
+
+      - name: start_hour
+        description: Hour of day the activity started (0-23)
+
+      - name: day_of_week
+        description: Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+
+      - name: is_weekend
+        description: TRUE if activity occurred on Saturday or Sunday
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== Activity Classification =====
+      - name: activity_type
+        description: Type of activity (running, cycling, etc.)
+        data_tests:
+          - not_null
+
+      - name: device_name
+        description: Garmin device used to record the activity
+
+      - name: location_name
+        description: Location or city of the activity
+
+      - name: is_race
+        description: TRUE if activity is detected as a race
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: race_distance_category
+        description: Race distance bucket (5K, 10K, Half Marathon, Marathon, Ultra) or NULL
+
+      - name: time_of_day
+        description: "Time-of-day bucket: morning / afternoon / evening / night"
+
+      - name: terrain_type
+        description: "Terrain classification: flat / rolling / hilly / mountainous"
+
+      # ===== Performance Metrics =====
+      - name: distance_km
+        description: Total distance in kilometers
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+      - name: duration_minutes
+        description: Total activity duration including pauses (minutes)
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 5"
+
+      - name: moving_duration_minutes
+        description: Active duration excluding pauses (minutes)
+
+      - name: pause_duration_minutes
+        description: Time spent paused (minutes)
+
+      - name: avg_pace_min_km
+        description: Average pace in minutes per kilometer
+
+      - name: avg_speed_kmh
+        description: Average speed in km/h
+
+      - name: max_speed_kmh
+        description: Maximum speed in km/h
+
+      - name: avg_heart_rate
+        description: Average heart rate during activity (bpm)
+
+      - name: max_heart_rate
+        description: Maximum heart rate during activity (bpm)
+
+      - name: hr_delta
+        description: max_heart_rate - avg_heart_rate (intensity variation)
+
+      - name: elevation_gain_m
+        description: Total elevation gain in meters
+
+      - name: elevation_loss_m
+        description: Total elevation loss in meters
+
+      - name: net_elevation_m
+        description: Net elevation change (gain - loss)
+
+      - name: elevation_range_m
+        description: Elevation range (max - min)
+
+      - name: calories
+        description: Estimated calories burned
+
+      - name: aerobic_training_effect
+        description: Garmin aerobic training effect score (0-5)
+
+      - name: anaerobic_training_effect
+        description: Garmin anaerobic training effect score (0-5)
+
+      - name: total_training_effect
+        description: Sum of aerobic + anaerobic training effects
+
+      - name: avg_cadence_spm
+        description: Average cadence in steps per minute
+
+      - name: max_cadence_spm
+        description: Maximum cadence in steps per minute
+
+      # ===== Effort Classification =====
+      - name: pace_zone
+        description: "Pace category: elite / fast / moderate / easy / recovery / no_data"
+        data_tests:
+          - not_null
+
+      - name: hr_zone
+        description: "Heart rate zone: zone_1_recovery through zone_5_max or no_hr_data"
+        data_tests:
+          - not_null
+
+      - name: effort_level
+        description: "Overall effort: easy / moderate / hard / unknown"
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["easy", "moderate", "hard", "unknown"]
+
+      - name: training_load
+        description: Simplified TRIMP value (duration × HR intensity factor)
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+      # ===== Health Context =====
+      - name: recovery_score
+        description: >
+          Composite recovery score (0-100) for the day of the activity.
+          NULL if no health data was recorded that day.
+
+      - name: pre_run_sleep_hours
+        description: Total sleep hours recorded for the activity day
+
+      - name: pre_run_sleep_quality
+        description: "Sleep quality bucket for the activity day: poor/fair/good/excellent/no_data"
+
+      - name: pre_run_sleep_efficiency_pct
+        description: Sleep efficiency percentage for the activity day
+
+      - name: daily_resting_hr
+        description: Resting heart rate recorded on the activity day
+
+      - name: hrv_avg
+        description: Average HRV recorded on the activity day (ms)
+
+      - name: hrv_category
+        description: "HRV quality bucket: excellent / good / moderate / low / no_data"
+
+      - name: stress_avg
+        description: Average stress score recorded on the activity day (0-100)
+
+      - name: stress_category
+        description: "Stress level bucket: low / moderate / high / very_high / no_data"
+
+      - name: body_battery_high
+        description: Peak body battery on the activity day (0-100)
+
+      - name: body_battery_low
+        description: Lowest body battery on the activity day (0-100)
+
+      - name: body_battery_net
+        description: Net body battery change on the activity day (charged - drained)
+
+      - name: body_battery_status
+        description: "Peak energy level bucket: high / moderate / low / depleted / no_data"
+
+      - name: is_missing_health_context
+        description: >
+          TRUE if no health data was available for the activity date.
+          Happens when the watch wasn't worn or health sync failed.
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      # ===== Cross-Domain Business Logic =====
+      - name: training_readiness
+        description: >
+          How ready the athlete was to train that day, based on recovery_score:
+          'high' (>= 70), 'moderate' (40-69), 'low' (< 40), 'no_data'
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["high", "moderate", "low", "no_data"]
+
+      - name: ran_while_tired
+        description: >
+          TRUE when effort_level = 'hard' AND (poor/fair sleep OR recovery_score < 40).
+          Flags potential overtraining or inappropriate session pacing.
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [true, false]
+
+      - name: workout_context
+        description: >
+          Relationship between effort and recovery:
+          'well_executed' (hard effort, high readiness),
+          'normal' (effort matches readiness),
+          'overreaching' (hard effort, low readiness),
+          'easy_day' (easy effort),
+          'no_data' (missing health context)
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                ["well_executed", "normal", "overreaching", "easy_day", "no_data"]
+
+      # ===== Audit Fields =====
+      - name: loaded_at
+        description: Timestamp when the activity was loaded into the bronze layer
+        data_tests:
+          - not_null
+
+      - name: updated_at
+        description: Timestamp of last update
