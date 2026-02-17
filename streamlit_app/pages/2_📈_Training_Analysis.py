@@ -387,7 +387,7 @@ with st.sidebar:
     # --- Smoothing option for rolling avg ---
     st.subheader("📊 Chart options")
     show_rolling = st.toggle("Show 4-week rolling avg", value=True)
-    show_targets = st.toggle("Show effort annotations", value=False)
+    show_targets = st.toggle("Show effort level on scatter", value=True)
 
 # =============================================================================
 # PAGE HEADER
@@ -544,10 +544,11 @@ if not df_summary_filtered.empty:
     ))
 
     # Line: 4-week rolling average (optional)
-    if show_rolling and "rolling_4wk_avg_load" in df_summary_filtered.columns:
+    # Real column name: rolling_4wk_avg_training_load (verified from mart schema)
+    if show_rolling and "rolling_4wk_avg_training_load" in df_summary_filtered.columns:
         fig_load.add_trace(go.Scatter(
             x=df_summary_filtered["week_start_date"],
-            y=df_summary_filtered["rolling_4wk_avg_load"],
+            y=df_summary_filtered["rolling_4wk_avg_training_load"],
             name="4-week Rolling Avg",
             mode="lines",
             line=dict(color=COLORS["secondary"], width=2.5, dash="solid"),
@@ -618,11 +619,12 @@ if not df_summary_filtered.empty:
     )
 
     # Rolling distance average
-    if show_rolling and "rolling_4wk_avg_distance" in df_summary_filtered.columns:
+    # Real column name: rolling_4wk_avg_distance_km (verified from mart schema)
+    if show_rolling and "rolling_4wk_avg_distance_km" in df_summary_filtered.columns:
         fig_dist.add_trace(
             go.Scatter(
                 x=df_summary_filtered["week_start_date"],
-                y=df_summary_filtered["rolling_4wk_avg_distance"],
+                y=df_summary_filtered["rolling_4wk_avg_distance_km"],
                 name="4-wk Avg Distance",
                 mode="lines",
                 line=dict(color=COLORS["secondary"], width=2.5),
@@ -805,16 +807,25 @@ st.markdown('<p class="section-header">🔍 Activity Detail: Distance vs Duratio
 
 if not df_activity_filtered.empty:
 
-    # Color by pace zone if available, otherwise by effort level
-    color_col   = "pace_zone" if "pace_zone" in df_activity_filtered.columns else "effort_level"
-    color_label = "Pace Zone" if color_col == "pace_zone" else "Effort Level"
+    # Color by effort level (sidebar toggle) or pace zone if effort not available
+    # show_targets controls whether to color by effort_level (True) or a neutral single color (False)
+    if show_targets and "effort_level" in df_activity_filtered.columns:
+        color_col   = "effort_level"
+        color_label = "Effort Level"
+    elif "pace_zone" in df_activity_filtered.columns:
+        color_col   = "pace_zone"
+        color_label = "Pace Zone"
+    else:
+        color_col   = None
+        color_label = None
 
+    scatter_df = df_activity_filtered.dropna(subset=["distance_km", "duration_minutes"])
     fig_scatter = px.scatter(
-        df_activity_filtered.dropna(subset=["distance_km", "duration_minutes"]),
+        scatter_df,
         x="distance_km",
         y="duration_minutes",
-        color=color_col,
-        size="training_load",
+        color=color_col if color_col else None,
+        size="training_load" if "training_load" in scatter_df.columns else None,
         size_max=20,
         hover_name="activity_name",
         hover_data={

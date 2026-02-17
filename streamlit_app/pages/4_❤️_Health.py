@@ -243,6 +243,19 @@ if df_all.empty:
 mask = (df_all["date"] >= date_start) & (df_all["date"] <= date_end)
 df = df_all[mask].copy()
 
+# Show the actual data range available vs the requested range.
+# This makes it immediately visible when the filter is wider than the data.
+data_min = df_all["date"].min()
+data_max = df_all["date"].max()
+data_days = len(df_all)
+
+if date_start < data_min:
+    st.info(
+        f"📅 **Your data starts on {data_min.strftime('%b %d, %Y')}** ({data_days} days available). "
+        f"The selected period goes further back, but only existing data is shown. "
+        f"Run `python -m ingestion.ingest_garmin --days 90` to sync more history."
+    )
+
 if df.empty:
     st.warning("No health data found for the selected period. Try a wider date range.")
     st.stop()
