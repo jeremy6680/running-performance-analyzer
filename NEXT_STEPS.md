@@ -3,12 +3,14 @@
 > **📅 Latest Update (Feb 16, 2026):** Phase 2 COMPLETE! ✅ 🎉
 >
 > **Silver Layer (Staging):**
+>
 > - `stg_garmin_activities.sql` complete (31/32 tests passing)
 > - `stg_garmin_health.sql` complete (27/27 tests passing)
 > - `int_unified_activities.sql` complete (29/29 tests passing)
 > - Sources documented (15/15 tests passing)
 >
 > **Gold Layer (Marts):**
+>
 > - `mart_training_analysis.sql` complete (45/45 tests passing)
 > - `mart_race_performance.sql` complete (31/31 tests passing)
 > - `mart_ai_features.sql` complete (37/37 tests passing)
@@ -115,14 +117,12 @@ Models created:
   - Training load trends
   - Heart rate zone distribution
   - Training impulse (TRIMP) calculations
-  
 - [x] `mart_race_performance.sql` - 31/31 tests passing
   - Race results only (is_race = true)
   - PR (Personal Record) tracking by distance
   - Race pace analysis
   - Performance trends over time
   - Age-graded performance metrics
-  
 - [x] `mart_health_trends.sql` - 58/58 tests passing
   - Sleep quality trends (7-day and 28-day averages)
   - HRV evolution and categorization
@@ -130,7 +130,6 @@ Models created:
   - Recovery score (0-100) based on sleep, RHR, stress, Body Battery
   - Training readiness (optimal/good/moderate/low)
   - Sleep debt tracking
-  
 - [x] `mart_ai_features.sql` - 37/37 tests passing
   - Feature engineering for AI/ML
   - Aggregated metrics for LLM context
@@ -185,6 +184,31 @@ dbt run --select +mart_training_analysis
 ---
 
 ### Phase 3: Streamlit Dashboard (1-2 weeks)
+
+### ⚠️ Technical Notes (Phase 3)
+
+**Environment:**
+
+- Use `venv_streamlit` (separate from `venv` used for dbt)
+- Launch: `source venv_streamlit/bin/activate && streamlit run streamlit_app/app.py`
+
+**Compatibility fix:**
+
+- streamlit==1.45.0 required — 1.46+ has a serialization bug with DuckDB 1.4.4
+- Use st.session_state instead of @st.cache_data (avoids Arrow serialization)
+
+**Real column names (differ from what we initially coded):**
+| Table | Date column | Other fixes |
+|--------------------------|-------------------|--------------------------------------|
+| mart*training_summary | week_start_date | weekly_trimp → total_training_load |
+| | | avg_heart_rate → avg_heart_rate_bpm |
+| | | rolling_4w*_ → rolling*4wk_avg*_ |
+| mart_health_trends | date | sleep_duration_hours → total_sleep_hours |
+| | | hrv_last_night → hrv_numeric |
+| mart_race_performance | race_date | |
+| stg_garmin_activities | activity_date | ✅ correct |
+
+**mart_ai_features:** does not exist in DB yet — load_ai_features() returns empty DataFrame
 
 #### Objective
 

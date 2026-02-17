@@ -1,0 +1,7 @@
+# Streamlit app dependencies
+# Note: streamlit==1.45.0 required — 1.46+ has a serialization bug with DuckDB 1.4.x
+# See: https://github.com/streamlit/streamlit/issues/XXXX
+streamlit==1.45.0
+duckdb==1.4.4
+pandas>=2.0.0
+plotly>=5.0.0

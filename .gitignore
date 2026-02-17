@@ -48,6 +48,7 @@ MANIFEST
 
 # Virtual environments
 venv/
+venv_streamlit/
 env/
 ENV/
 env.bak/
