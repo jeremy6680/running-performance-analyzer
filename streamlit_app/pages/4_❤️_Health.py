@@ -174,15 +174,15 @@ def clear_cache():
 # =============================================================================
 
 with st.sidebar:
-    st.header("Filters")
+    st.header("⚙️ Filters")
 
-    if st.button("Refresh data", use_container_width=True):
+    if st.button("🔄 Refresh data", use_container_width=True):
         clear_cache()
         st.rerun()
 
     st.divider()
 
-    st.subheader("Period")
+    st.subheader("📅 Period")
     period_option = st.radio(
         "Quick select",
         ["Last 2 weeks", "Last 4 weeks", "Last 3 months", "All time", "Custom"],
@@ -213,6 +213,7 @@ with st.sidebar:
             date_end = pd.Timestamp(st.date_input("To", value=today))
 
     st.divider()
+    st.subheader("📊 Chart options")
     show_7day_avg = st.toggle("Show 7-day rolling avg", value=True)
 
 # =============================================================================
