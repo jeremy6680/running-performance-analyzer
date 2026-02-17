@@ -22,6 +22,7 @@ from utils.formatting import (
     format_date,
     format_distance,
     format_duration_short,
+    format_duration,
     format_heart_rate,
     format_pace,
 )
@@ -159,8 +160,8 @@ def render_recent_activities(df: pd.DataFrame) -> None:
                         )["label"]
                     ),
         "Distance": df["distance_km"].apply(format_distance),
-        "Duration": df["duration_minutes"].apply(format_duration_short),
-        "Pace":     df["avg_pace_min_km"].apply(format_pace),
+        "Duration": df["duration_minutes"].apply(format_duration),
+        "Pace":     df["pace_min_km"].apply(format_pace),
         "Avg HR":   df["avg_heart_rate"].apply(format_heart_rate),
         "Zone":     df["pace_zone"].fillna("—").str.capitalize(),
     })

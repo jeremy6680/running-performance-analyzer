@@ -170,7 +170,13 @@ def load_recent_activities(limit: int = 10) -> pd.DataFrame:
             activity_type,
             distance_km,
             duration_minutes,
-            avg_pace_min_km,
+            -- Calculate true pace in min/km from duration and distance
+            -- avg_pace_min_km from Garmin API is in seconds/mile (raw value)
+            CASE 
+                WHEN distance_km > 0 
+                THEN ROUND(duration_minutes / distance_km, 3)
+                ELSE NULL 
+            END AS pace_min_km,
             avg_heart_rate,
             elevation_gain_m,
             training_load,
