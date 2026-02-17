@@ -10,7 +10,9 @@
 ) }}
 
 -- Step 1: Define weeks dimension
--- Create a spine of all weeks that have activity data, starting from Monday
+-- Create a spine of weeks that have RUNNING activity data, starting from Monday.
+-- Filter to activity_type = 'running' so non-running activity types (walks,
+-- cycling, strength) do not create phantom weeks in this running-focused mart.
 with weeks_spine as (
     select distinct
         -- Get Monday of the week for each activity
@@ -19,14 +21,19 @@ with weeks_spine as (
         extract(week from date_trunc('week', activity_date)) as week_number
     from {{ ref('int_unified_activities') }}
     where activity_date is not null
+      and activity_type = 'running'  -- Running weeks only
 ),
 
 -- Step 2: Aggregate activities by week
+-- Filter to activity_type = 'running' so all metrics (distance, pace, HR, load)
+-- reflect running only. Without this filter, a walk or cycling session would
+-- distort avg_pace_min_per_km, avg_heart_rate_bpm, and total_training_load.
 weekly_aggregates as (
     select
         date_trunc('week', activity_date) as week_start_date,
         
         -- Count metrics
+        -- total_activities = total RUNNING sessions this week (non-runs excluded)
         count(*) as total_activities,
         count(case when is_race then 1 end) as total_races,
         
@@ -63,6 +70,9 @@ weekly_aggregates as (
         
     from {{ ref('int_unified_activities') }}
     where activity_date is not null
+      and activity_type = 'running'  -- Running activities only: prevents walks,
+                                     -- cycling or strength sessions from distorting
+                                     -- pace, HR, distance and training load metrics
     group by 1
 ),
 
