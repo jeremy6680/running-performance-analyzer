@@ -137,8 +137,9 @@ race_metrics as (
             else 5
         end as race_readiness_score,
         
-        -- Finish time in HH:MM:SS format
-        floor(ri.duration_minutes / 60) || ':' || 
+        -- Finish time in H:MM:SS format
+        -- Cast hours to integer first to avoid '0.0:59:50' float formatting
+        cast(floor(ri.duration_minutes / 60) as integer) || ':' ||
         lpad(cast(floor(ri.duration_minutes % 60) as varchar), 2, '0') || ':' ||
         lpad(cast(floor((ri.duration_minutes % 1) * 60) as varchar), 2, '0') as finish_time_formatted
         

@@ -81,8 +81,9 @@ cleaned AS (
     -- Activity Metadata
     -- -------------------------------------------------------------------------
     activity_type,         -- running, cycling, swimming, etc.
-    device_name,          -- Which Garmin device was used
-    location_name,        -- City/location of activity
+    event_type,            -- Garmin event tag: 'race', 'uncategorized', NULL, etc.
+    device_name,           -- Which Garmin device was used
+    location_name,         -- City/location of activity
     
     -- -------------------------------------------------------------------------
     -- Distance Metrics
@@ -191,38 +192,49 @@ enriched AS (
     -- -------------------------------------------------------------------------
     -- Activity Classification: Race Detection
     -- -------------------------------------------------------------------------
-    -- We use multiple heuristics to detect if an activity is a race:
-    -- 1. Activity name contains race-related keywords
-    -- 2. Distance matches standard race distances (5K, 10K, half, full)
+    -- Detection strategy: event_type field first, activity name keywords as fallback.
     --
-    -- Why this matters: Races are analyzed differently than training runs
-    -- (PRs, race performance trends, pacing strategy)
+    -- PRIMARY: event_type = 'race'
+    --   Garmin Connect lets you tag any activity as a "Race" via the event type
+    --   dropdown. This sets eventType.typeKey = 'race' in the API response.
+    --   This is the most reliable signal — set explicitly by the user.
+    --
+    -- FALLBACK: keyword matching on activity name
+    --   For activities synced before event_type was captured, or for platforms
+    --   that don't support event types, we fall back to name-based detection.
+    --   Keywords cover English and French conventions.
+    --
+    -- NOTE: We deliberately do NOT use distance-based detection (e.g. "if 10km
+    --   then it's a race") because any training run of ~10 km would be wrongly
+    --   flagged. Distance alone is not a reliable race signal.
     CASE
-      -- Keyword-based detection
-      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%race%' THEN TRUE
-      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%marathon%' THEN TRUE
-      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%5k%' THEN TRUE
-      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%10k%' THEN TRUE
-      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%half%' THEN TRUE
-      
-      -- Distance-based detection (with small tolerance for GPS drift)
-      WHEN distance_km BETWEEN 4.9 AND 5.1 THEN TRUE      -- 5K
-      WHEN distance_km BETWEEN 9.9 AND 10.1 THEN TRUE     -- 10K
-      WHEN distance_km BETWEEN 21.0 AND 21.2 THEN TRUE    -- Half Marathon
-      WHEN distance_km BETWEEN 42.0 AND 42.4 THEN TRUE    -- Marathon
-      
+      -- Primary: Garmin's explicit race tag (most reliable)
+      WHEN LOWER(COALESCE(event_type, '')) = 'race'                 THEN TRUE
+      -- Fallback: keywords in activity name (English)
+      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%race%'         THEN TRUE
+      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%marathon%'     THEN TRUE
+      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%5k%'           THEN TRUE
+      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%10k%'          THEN TRUE
+      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%half%'         THEN TRUE
+      -- Fallback: keywords in activity name (French)
+      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%semi-marathon%' THEN TRUE
+      WHEN LOWER(COALESCE(activity_name, '')) LIKE '%trail%'        THEN TRUE
       ELSE FALSE
     END AS is_race,
     
     -- Race distance category (only for detected races)
-    -- This allows us to compare performances across same distances
+    -- This allows us to compare performances across same distances.
+    -- Tolerances are generous (+/- 0.2 to 0.3 km) to account for:
+    --   - GPS drift over the course of a race
+    --   - Slight course measurement variations between events
+    --   - Staggered starts where runners may cover slightly different distances
     CASE
-      WHEN distance_km BETWEEN 4.9 AND 5.1 THEN '5K'
-      WHEN distance_km BETWEEN 9.9 AND 10.1 THEN '10K'
-      WHEN distance_km BETWEEN 21.0 AND 21.2 THEN 'Half Marathon'
-      WHEN distance_km BETWEEN 42.0 AND 42.4 THEN 'Marathon'
-      WHEN distance_km > 42.4 THEN 'Ultra'
-      ELSE NULL  -- Not a race or non-standard distance
+      WHEN distance_km BETWEEN 4.8 AND 5.2  THEN '5K'
+      WHEN distance_km BETWEEN 9.8 AND 10.3 THEN '10K'           -- e.g. 10.11 km is still a 10K
+      WHEN distance_km BETWEEN 20.9 AND 21.4 THEN 'Half Marathon'
+      WHEN distance_km BETWEEN 41.9 AND 42.6 THEN 'Marathon'
+      WHEN distance_km > 42.6 THEN 'Ultra'
+      ELSE NULL  -- Non-standard distance or data issue
     END AS race_distance_category,
     
     -- -------------------------------------------------------------------------

@@ -136,6 +136,10 @@ class DuckDBManager:
                 -- Activity Type
                 activity_type VARCHAR,
                 
+                -- Event Type (Garmin's race tag in Connect UI)
+                -- 'race' when user tags activity as a race, else NULL or 'training'
+                event_type VARCHAR,
+                
                 -- Distance & Duration
                 distance_m DOUBLE,
                 distance_km DOUBLE,
@@ -258,42 +262,56 @@ class DuckDBManager:
         if 'activity_date' in df.columns:
             df['activity_date'] = pd.to_datetime(df['activity_date'])
         
+        # ── Resolve which DataFrame columns map to table columns ────────────
+        # We use explicit column lists to avoid positional mismatch when the
+        # DataFrame has more or fewer columns than the table definition.
+        # Only columns that exist in BOTH the DataFrame and the table are inserted.
+        table_cols_result = conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'raw_garmin_activities' "
+            "AND column_name NOT IN ('inserted_at', 'updated_at') "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+        table_cols = [row[0] for row in table_cols_result]
+
+        # Keep only columns present in the DataFrame (handles schema evolution)
+        insert_cols = [c for c in table_cols if c in df.columns]
+        col_list = ", ".join(insert_cols)
+        select_list = ", ".join([f'df."{c}"' for c in insert_cols])
+
         if mode == "replace":
             # Drop existing data and insert new
             logger.info("Replacing all activities in database...")
             conn.execute("DELETE FROM raw_garmin_activities")
-            # Insert without audit fields (they have defaults)
-            conn.execute("""
-                INSERT INTO raw_garmin_activities 
-                SELECT *, 
-                       CURRENT_TIMESTAMP as inserted_at,
-                       CURRENT_TIMESTAMP as updated_at
+            conn.execute(f"""
+                INSERT INTO raw_garmin_activities ({col_list}, inserted_at, updated_at)
+                SELECT {select_list},
+                       CURRENT_TIMESTAMP,
+                       CURRENT_TIMESTAMP
                 FROM df
             """)
-            
+
         elif mode == "append":
             # Simply append (may create duplicates)
             logger.info("Appending activities to database...")
-            conn.execute("""
-                INSERT INTO raw_garmin_activities 
-                SELECT *, 
-                       CURRENT_TIMESTAMP as inserted_at,
-                       CURRENT_TIMESTAMP as updated_at
+            conn.execute(f"""
+                INSERT INTO raw_garmin_activities ({col_list}, inserted_at, updated_at)
+                SELECT {select_list},
+                       CURRENT_TIMESTAMP,
+                       CURRENT_TIMESTAMP
                 FROM df
             """)
-            
+
         elif mode == "upsert":
-            # Insert or update based on activity_id
+            # Insert new records only (skip existing activity_ids)
             logger.info("Upserting activities (insert or update)...")
-            
-            # Then, insert new records (those not in target)
-            conn.execute("""
-                INSERT INTO raw_garmin_activities
-                SELECT *, 
-                       CURRENT_TIMESTAMP as inserted_at,
-                       CURRENT_TIMESTAMP as updated_at
+            conn.execute(f"""
+                INSERT INTO raw_garmin_activities ({col_list}, inserted_at, updated_at)
+                SELECT {select_list},
+                       CURRENT_TIMESTAMP,
+                       CURRENT_TIMESTAMP
                 FROM df
-                WHERE activity_id NOT IN (
+                WHERE df.activity_id NOT IN (
                     SELECT activity_id FROM raw_garmin_activities
                 )
             """)
@@ -379,6 +397,35 @@ class DuckDBManager:
         
         return count
     
+    def migrate_add_event_type(self) -> None:
+        """
+        Migration: add event_type column to raw_garmin_activities if it doesn't exist.
+
+        Safe to run multiple times — checks for column existence first.
+        Needed for existing databases created before event_type was added.
+
+        Example:
+            >>> manager.migrate_add_event_type()
+        """
+        conn = self.connect()
+
+        # Check if column already exists
+        existing_cols = [
+            row[0]
+            for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'raw_garmin_activities'"
+            ).fetchall()
+        ]
+
+        if "event_type" not in existing_cols:
+            conn.execute(
+                "ALTER TABLE raw_garmin_activities ADD COLUMN event_type VARCHAR"
+            )
+            logger.success("✅ Migration: added event_type column to raw_garmin_activities")
+        else:
+            logger.info("Migration not needed: event_type column already exists")
+
     def get_activities_count(self) -> int:
         """Get total count of activities in database."""
         result = self.execute("SELECT COUNT(*) FROM raw_garmin_activities").fetchone()

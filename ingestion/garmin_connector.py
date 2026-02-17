@@ -254,6 +254,12 @@ class GarminConnector:
                 # Activity Type
                 "activity_type": activity.get("activityType", {}).get("typeKey", "unknown"),
                 
+                # Event Type — Garmin's "race" tag in Connect UI sets this field.
+                # eventType.typeKey = 'race' when you tag an activity as a race.
+                # Other values: 'training', 'recreation', 'transportation', etc.
+                # This is separate from activityType (which is always 'running').
+                "event_type": activity.get("eventType", {}).get("typeKey") if activity.get("eventType") else None,
+                
                 # Distance & Duration
                 "distance_m": activity.get("distance", 0),
                 "distance_km": meters_to_kilometers(activity.get("distance", 0)),
