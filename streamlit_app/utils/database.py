@@ -170,7 +170,7 @@ def load_recent_activities(limit: int = 10) -> pd.DataFrame:
             activity_type,
             distance_km,
             duration_minutes,
-            avg_pace_min_per_km,
+            avg_pace_min_km,
             avg_heart_rate,
             elevation_gain_m,
             training_load,
