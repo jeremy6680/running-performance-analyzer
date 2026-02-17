@@ -1,361 +1,200 @@
 # 🏃 Running Performance Analyzer - Next Steps
 
-> **📅 Latest Update (Feb 16, 2026):** Phase 2 COMPLETE! ✅ 🎉
->
-> **Silver Layer (Staging):**
->
-> - `stg_garmin_activities.sql` complete (31/32 tests passing)
-> - `stg_garmin_health.sql` complete (27/27 tests passing)
-> - `int_unified_activities.sql` complete (29/29 tests passing)
-> - Sources documented (15/15 tests passing)
->
-> **Gold Layer (Marts):**
->
-> - `mart_training_analysis.sql` complete (45/45 tests passing)
-> - `mart_race_performance.sql` complete (31/31 tests passing)
-> - `mart_ai_features.sql` complete (37/37 tests passing)
-> - `mart_health_trends.sql` complete (58/58 tests passing)
->
-> **📊 Total: 4 marts, 171 tests, 100% passing**
-> **Next:** Phase 3 - Streamlit Dashboard
-
 ## ✅ What We've Accomplished So Far
 
 ### Phase 1: Project Setup & Data Ingestion (COMPLETED ✓)
 
 #### Infrastructure
-
-- [x] Project structure created with proper folder organization
-- [x] Git repository initialized and configured
-- [x] Python virtual environment with Python 3.11.9
-- [x] All core dependencies installed (pandas, duckdb, dbt, streamlit, etc.)
+- [x] Project structure with proper folder organisation
+- [x] Git repository initialised and configured
+- [x] Python virtual environment (Python 3.11.9 via pyenv)
+- [x] All core dependencies installed
 - [x] Environment configuration with `.env` file
 - [x] Docker Compose configuration for future Airflow deployment
 
 #### Data Ingestion Pipeline
-
 - [x] **Garmin Connect API Integration**
-  - `ingestion/garmin_connector.py` - Full-featured API connector
+  - `ingestion/garmin_connector.py` — full-featured API connector
   - Session management (saves/loads sessions to avoid re-login)
-  - Fetches activities (runs with distance, pace, HR, elevation, etc.)
-  - Fetches daily health (steps, sleep, HRV, stress, body battery, etc.)
+  - Fetches activities (distance, pace, HR, elevation, `event_type` for race detection)
+  - Fetches daily health (steps, sleep, HRV, stress, body battery)
   - Error handling and logging with loguru
 
 - [x] **DuckDB Database Layer (Bronze)**
-  - `ingestion/duckdb_manager.py` - Database manager
-  - Bronze layer tables created:
-    - `raw_garmin_activities` (29 columns with audit fields)
-    - `raw_garmin_daily_health` (24 columns with audit fields)
+  - `ingestion/duckdb_manager.py` — database manager
+  - Bronze layer tables: `raw_garmin_activities` (30 cols), `raw_garmin_daily_health` (24 cols)
   - Upsert logic (insert new, skip duplicates)
-  - Query helper methods
+  - Migration: `migrate_add_event_type()` — added `event_type` column for race detection
 
 - [x] **Ingestion Scripts**
-  - `ingestion/ingest_garmin.py` - Main ingestion script
-  - CLI with options (--days, --initial, --mode)
-  - Successfully tested with real data
+  - `ingestion/ingest_garmin.py` — main ingestion script with CLI (`--days`, `--initial`, `--mode`)
+  - `ingestion/config.py` — Pydantic configuration management
+  - `ingestion/utils.py` — utility functions
+  - `scripts/query_data.py` — data exploration script
 
-- [x] **Utilities**
-  - `ingestion/config.py` - Configuration management with Pydantic
-  - `ingestion/utils.py` - Utility functions (date handling, conversions, calculations)
-  - `ingestion/test_connector.py` - Test script for API
-  - `scripts/query_data.py` - Data exploration script
+---
 
-#### Current Data Status
+### Phase 2: Data Transformation with dbt (COMPLETED ✓)
 
+#### dbt Project Setup
+- [x] dbt project initialised with DuckDB adapter
+- [x] `dbt_project.yml` and `profiles.yml` configured
+- [x] Sources defined in `_sources.yml`
+
+#### Silver Layer (Staging Models)
+- [x] `stg_garmin_activities.sql` — 482-line model with:
+  - Pace zones, HR zones, effort levels, training load (TRIMP)
+  - Race detection (event_type-first strategy — avoids false positives on distance)
+  - Race distance categorisation (5K/10K/Half/Marathon/Ultra) with GPS-drift tolerances
+  - Terrain classification
+- [x] `stg_garmin_health.sql` — sleep, HRV, stress, body battery cleaning
+
+#### Intermediate Layer
+- [x] `int_unified_activities.sql` — merges sources, standardises activity types
+
+#### Gold Layer (Marts)
+- [x] `mart_activity_performance.sql` — per-activity analytics
+- [x] `mart_training_summary.sql` — weekly aggregations with rolling averages
+  - Columns: `rolling_4wk_avg_distance_km`, `rolling_4wk_avg_training_load`
+  - HR zone distribution: `pct_zone1_easy` → `pct_zone5_max`
+- [x] `mart_health_trends.sql` — daily health with 7/28-day rolling averages, recovery score, training readiness
+- [x] `mart_race_performance.sql` — race history, PR tracking, pace analysis, readiness context
+
+#### Data Quality
+- [x] Schema tests across all layers (not_null, unique, accepted_values, relationships)
+- [x] High test pass rate (46/47 on initial run)
+- [x] Race detection bug fixed (event_type-first, removed distance-based false positives)
+
+#### Critical schema facts (for reference in future sessions)
 ```
-✅ 3 activities ingested (last 7 days)
-✅ 8 days of health data
-✅ Database: data/duckdb/running_analytics.duckdb (fully functional)
+mart_training_summary:    rolling_4wk_avg_distance_km, rolling_4wk_avg_training_load
+                          pct_zone1_easy, pct_zone2_moderate, pct_zone3_tempo,
+                          pct_zone4_threshold, pct_zone5_max
+mart_health_trends:       date (not health_date), total_sleep_hours, hrv_numeric,
+                          average_stress_level, recovery_score, training_readiness
+mart_race_performance:    race_date, finish_time_formatted (H:MM:SS), is_personal_record,
+                          performance_rating, race_readiness_score
 ```
 
 ---
 
-## 🎯 Next Steps - Roadmap
+### Phase 3: Streamlit Dashboard (COMPLETED ✓)
 
-### Phase 2: Data Transformation with dbt ✅ COMPLETE!
+#### Infrastructure
+- [x] Separate virtual environment `venv_streamlit` with Streamlit 1.45.0
+  - Downgraded from 1.54.0 to fix DuckDB 1.4.4 Arrow serialisation error
+  - All pages use `st.session_state` instead of `@st.cache_data`
+- [x] Modular architecture:
+  - `utils/database.py` — data loading functions
+  - `utils/formatting.py` — pace, time, distance formatters
+  - `utils/constants.py` — Garmin-inspired colour palette, HR zones, activity types
+  - `components/metrics.py` — reusable metric cards
+  - `components/charts.py` — reusable Plotly chart components
 
-#### Objective ✅
+#### Pages Built
+- [x] `app.py` — home page
+  - Gradient hero title, data range badge
+  - All-time stats row (total distance, runs, time, PRs)
+  - Today's recovery status with readiness badge
+  - Navigation cards linking to all 4 sub-pages
+  - Light Garmin-inspired theme (no dark sidebar override)
 
-Transform raw data (bronze) into clean, analytics-ready datasets (silver/gold) using dbt.
+- [x] `pages/1_📊_Dashboard.py` — weekly overview
+  - Recent activities table, key metric cards
+  - Weekly/monthly distance trends
 
-#### Tasks
+- [x] `pages/2_📈_Training_Analysis.py` — training load & pace
+  - Weekly training load (TRIMP) bar chart + 4-week rolling avg
+  - Distance & pace dual-axis chart + 4-week rolling avg
+  - HR zone distribution bar chart with 80/20 rule assessment
+  - Distance vs duration scatter, coloured by effort level (toggle-able)
+  - Toggles: `Show 4-week rolling avg` / `Show effort level on scatter`
 
-**2.1 - dbt Setup ✅**
+- [x] `pages/3_🏃_Race_Performance.py` — race history & PRs
+  - Career summary (total races, PRs, best pace)
+  - Race history table with emoji PR indicators
+  - Pace progression scatter (PR lines per distance category)
+  - PR cards per distance
+  - Race readiness & training context charts
 
-- [x] Initialize dbt project: `dbt init dbt_project`
-- [x] Configure `profiles.yml` for DuckDB connection
-- [x] Set up `dbt_project.yml` with project configs
-- [x] Create `sources.yml` to reference bronze tables
+- [x] `pages/4_❤️_Health.py` — health & recovery
+  - Sleep trends bar chart (colour-coded) + 7-day avg + sleep stage breakdown
+  - Resting HR & HRV side-by-side charts
+  - Stress levels & Body Battery range charts
+  - Recovery score timeline with coloured markers + readiness breakdown
+  - Daily steps chart
+  - Data range info banner (shows when selected period exceeds available data)
+  - Toggle: `Show 7-day rolling avg`
 
-**2.2 - Silver Layer (Staging Models) ✅**
-Create clean, typed, deduplicated versions of raw data.
+#### Bug fixes applied
+- `pages/2_📈_Training_Analysis.py` — rolling avg lines were never drawn because the page
+  checked for `rolling_4wk_avg_distance` / `rolling_4wk_avg_load` (wrong). Corrected to
+  `rolling_4wk_avg_distance_km` / `rolling_4wk_avg_training_load` (real mart column names).
+  Also renamed `Show effort annotations` → `Show effort level on scatter` and wired it to
+  actually toggle the scatter colour column.
+- `app.py` — duplicate 🏃 emoji in H1 title removed (`APP_TITLE` already contains the emoji;
+  the HTML template was prepending a second one).
+- `pages/4_❤️_Health.py` — period filter appeared broken because all date ranges returned
+  the same data. Root cause: health data only starts Feb 8, 2026. Added a blue info banner
+  that appears whenever the selected period extends beyond the earliest available date,
+  explaining the gap and showing the sync command.
 
-Models created:
-
-- [x] `stg_garmin_activities.sql` - 31/32 tests passing
-  - Clean activity data
-  - Add calculated fields (pace zones, effort levels)
-  - Handle nulls and data quality issues
-- [x] `stg_garmin_health.sql` - 27/27 tests passing
-  - Clean health metrics
-  - Convert units (seconds to hours for sleep)
-  - Add date dimensions
-
-- [x] `int_unified_activities.sql` - 29/29 tests passing (intermediate)
-  - Merge activities from multiple sources (Garmin + Strava future)
-  - Standardize activity types
-  - Add business logic (training_readiness, ran_while_tired, workout_context)
-
-**2.3 - Gold Layer (Marts) ✅**
-Create business-focused analytical models.
-
-Models created:
-
-- [x] `mart_training_analysis.sql` - 45/45 tests passing
-  - Weekly aggregations (distance, time, load)
-  - Rolling averages (4-week, 8-week)
-  - Training load trends
-  - Heart rate zone distribution
-  - Training impulse (TRIMP) calculations
-- [x] `mart_race_performance.sql` - 31/31 tests passing
-  - Race results only (is_race = true)
-  - PR (Personal Record) tracking by distance
-  - Race pace analysis
-  - Performance trends over time
-  - Age-graded performance metrics
-- [x] `mart_health_trends.sql` - 58/58 tests passing
-  - Sleep quality trends (7-day and 28-day averages)
-  - HRV evolution and categorization
-  - Resting heart rate trends
-  - Recovery score (0-100) based on sleep, RHR, stress, Body Battery
-  - Training readiness (optimal/good/moderate/low)
-  - Sleep debt tracking
-- [x] `mart_ai_features.sql` - 37/37 tests passing
-  - Feature engineering for AI/ML
-  - Aggregated metrics for LLM context
-  - Training readiness indicators
-  - Weekly performance summaries
-
-**2.4 - dbt Testing & Documentation ✅**
-
-- [x] Add schema tests (not_null, unique, relationships)
-- [x] Add custom data tests (value ranges, logical checks)
-- [x] Write descriptions for all models and columns
-- [x] 100% test pass rate (171/171 tests passing)
-- [ ] Generate dbt docs: `dbt docs generate && dbt docs serve`
-
-**2.5 - dbt Deployment ✅**
-
-- [x] Create `dbt run` command for full refresh
-- [x] All models materialized as tables in main_gold schema
-- [ ] Set up incremental models for efficiency (future optimization)
-- [ ] Add post-hooks for data quality checks (future enhancement)
-
-#### Key dbt Commands
-
+#### Known data limitation
+Health data only goes back to Feb 8, 2026. To sync more history:
 ```bash
-# Initialize dbt project
-cd dbt_project
-dbt init
-
-# Run models
-dbt run
-
-# Run tests
-dbt test
-
-# Generate documentation
-dbt docs generate
-dbt docs serve
-
-# Run specific model
-dbt run --select stg_garmin_activities
-
-# Run downstream models
-dbt run --select +mart_training_analysis
+python -m ingestion.ingest_garmin --days 90
+cd dbt_project && dbt run
 ```
-
-#### Resources
-
-- [dbt Documentation](https://docs.getdbt.com/)
-- [dbt-duckdb Adapter](https://github.com/jwills/dbt-duckdb)
-- [Medallion Architecture Guide](https://www.databricks.com/glossary/medallion-architecture)
 
 ---
 
-### Phase 3: Streamlit Dashboard (1-2 weeks)
+## 🎯 Next Steps — Roadmap
 
-### ⚠️ Technical Notes (Phase 3)
-
-**Environment:**
-
-- Use `venv_streamlit` (separate from `venv` used for dbt)
-- Launch: `source venv_streamlit/bin/activate && streamlit run streamlit_app/app.py`
-
-**Compatibility fix:**
-
-- streamlit==1.45.0 required — 1.46+ has a serialization bug with DuckDB 1.4.4
-- Use st.session_state instead of @st.cache_data (avoids Arrow serialization)
-
-**Real column names (differ from what we initially coded):**
-| Table | Date column | Other fixes |
-|--------------------------|-------------------|--------------------------------------|
-| mart*training_summary | week_start_date | weekly_trimp → total_training_load |
-| | | avg_heart_rate → avg_heart_rate_bpm |
-| | | rolling_4w*_ → rolling*4wk_avg*_ |
-| mart_health_trends | date | sleep_duration_hours → total_sleep_hours |
-| | | hrv_last_night → hrv_numeric |
-| mart_race_performance | race_date | |
-| stg_garmin_activities | activity_date | ✅ correct |
-
-**mart_ai_features:** does not exist in DB yet — load_ai_features() returns empty DataFrame
+### Phase 4: AI Coach Integration (NEXT 🎯)
 
 #### Objective
-
-Create an interactive web dashboard to visualize running analytics and health metrics.
-
-#### Tasks
-
-**3.1 - Basic Dashboard Setup**
-
-- [ ] Create `streamlit_app/app.py` (home page)
-- [ ] Set up multi-page structure
-- [ ] Configure Streamlit theme and layout
-- [ ] Connect to DuckDB (read from gold layer)
-
-**3.2 - Page 1: Overview Dashboard**
-File: `streamlit_app/pages/1_📊_Dashboard.py`
-
-- [ ] Key metrics cards (total distance, runs, avg HR)
-- [ ] Recent activities table
-- [ ] Weekly/monthly trends charts
-- [ ] Interactive date range selector
-
-**3.3 - Page 2: Training Analysis**
-File: `streamlit_app/pages/2_📈_Training_Analysis.py`
-
-- [ ] Training load chart (weekly, 4-week rolling)
-- [ ] Pace progression over time
-- [ ] Heart rate zone distribution
-- [ ] Distance vs duration scatter plot
-- [ ] Filters: activity type, date range
-
-**3.4 - Page 3: Race Performance**
-File: `streamlit_app/pages/3_🏃_Race_Performance.py`
-
-- [ ] PR (Personal Record) tracker
-- [ ] Race results table
-- [ ] Pace comparison across races
-- [ ] Goal vs actual performance
-
-**3.5 - Page 4: Health & Recovery**
-File: `streamlit_app/pages/4_❤️_Health.py`
-
-- [ ] Sleep trends (hours, quality)
-- [ ] Resting heart rate evolution
-- [ ] HRV chart (when available)
-- [ ] Stress levels over time
-- [ ] Body Battery (charge/drain)
-
-**3.6 - Components & Styling**
-
-- [ ] Create reusable chart components (`components/charts.py`)
-- [ ] Create metric cards (`components/metrics.py`)
-- [ ] Apply custom CSS for better design
-- [ ] Add Garmin-like color scheme
-
-#### Key Streamlit Concepts
-
-```python
-# Cache data loading
-@st.cache_data
-def load_data():
-    conn = duckdb.connect(DB_PATH)
-    return conn.execute("SELECT * FROM mart_training_analysis").df()
-
-# Interactive widgets
-date_range = st.date_input("Select date range")
-activity_type = st.selectbox("Activity type", ["All", "Running", "Cycling"])
-
-# Charts with Plotly
-import plotly.express as px
-fig = px.line(df, x='week', y='distance_km')
-st.plotly_chart(fig, use_container_width=True)
-```
-
-#### Resources
-
-- [Streamlit Documentation](https://docs.streamlit.io/)
-- [Plotly Documentation](https://plotly.com/python/)
-- [Streamlit Gallery](https://streamlit.io/gallery) for inspiration
-
----
-
-### Phase 4: AI Coach Integration (1-2 weeks)
-
-#### Objective
-
-Add AI-powered coaching recommendations using Claude API.
+Add AI-powered coaching recommendations using Claude API (Anthropic).
 
 #### Tasks
 
 **4.1 - LLM Integration Setup**
-
 - [ ] Create `ai_engine/llm_analyzer.py`
-- [ ] Set up Claude API client (Anthropic)
+- [ ] Set up Anthropic Claude API client
 - [ ] Create prompt templates in `ai_engine/prompts/`
 
 **4.2 - Prompt Engineering**
-Create specialized prompts for different use cases:
-
-- [ ] `training_recommendations.txt` - Weekly training advice
-- [ ] `injury_prevention.txt` - Risk assessment
-- [ ] `race_strategy.txt` - Race-specific coaching
-- [ ] `recovery_advice.txt` - Rest and nutrition
+- [ ] `training_recommendations.txt` — weekly training advice
+- [ ] `injury_prevention.txt` — risk assessment based on load trends
+- [ ] `race_strategy.txt` — race-specific coaching
+- [ ] `recovery_advice.txt` — rest and nutrition suggestions
 
 **4.3 - AI Coach Page**
 File: `streamlit_app/pages/5_🤖_AI_Coach.py`
+- [ ] User inputs: race goal (10K/half/marathon), target time
+- [ ] Fetch last 12 weeks from `mart_training_summary` + `mart_health_trends`
+- [ ] Build structured context for LLM
+- [ ] Call Claude API and display recommendations in clear sections
 
-- [ ] User inputs: race goal (10K, half, marathon), target time
-- [ ] Fetch recent training data from gold layer
-- [ ] Build context for LLM (last 12 weeks, health trends)
-- [ ] Call Claude API with structured prompt
-- [ ] Display recommendations in clear sections
-
-**4.4 - Advanced AI Features (Optional)**
-
-- [ ] RAG (Retrieval Augmented Generation) for running knowledge base
-- [ ] Multi-agent system (training agent, nutrition agent, recovery agent)
-- [ ] Weekly automated email summaries
-- [ ] Conversational interface (chatbot)
-
-#### Example AI Prompt Structure
-
+**4.4 - Context building (gold layer data → LLM prompt)**
 ```python
 context = f"""
-Runner Profile:
-- Age: 35, Weight: 70kg, Experience: 5 years
-- Goal: Marathon in 3:30:00
-
 Recent Training (12 weeks):
-- Average weekly distance: {avg_distance} km
-- Average pace: {avg_pace} min/km
+- Avg weekly distance: {avg_distance} km
+- Avg pace: {avg_pace} min/km
 - Training load trend: {load_trend}
+- HR zone distribution: {easy_pct}% easy / {hard_pct}% hard
 
-Health Metrics (7 days):
-- Average resting HR: {rhr} bpm
-- Average HRV: {hrv} ms
-- Sleep quality: {sleep_score}/100
-- Stress level: {stress}/100
+Health (7 days):
+- Avg resting HR: {rhr} bpm  |  Avg HRV: {hrv} ms
+- Avg sleep: {sleep}h  |  Avg stress: {stress}/100
+- Current training readiness: {readiness}
 
-Question: Provide training recommendations for next 4 weeks.
+Goal: {race_distance} in {target_time}
 """
 ```
 
-#### Resources
-
+#### Key resources
 - [Anthropic Claude API Docs](https://docs.anthropic.com/)
-- [LangChain Documentation](https://python.langchain.com/)
 - [Prompt Engineering Guide](https://www.promptingguide.ai/)
 
 ---
@@ -363,91 +202,23 @@ Question: Provide training recommendations for next 4 weeks.
 ### Phase 5: Orchestration with Airflow (1 week)
 
 #### Objective
-
-Automate daily data sync and transformations.
+Automate daily data sync and dbt transformations.
 
 #### Tasks
-
-**5.1 - Airflow Setup (Docker)**
-
 - [ ] Start Airflow: `docker-compose up -d`
-- [ ] Access UI: http://localhost:8080
-- [ ] Configure connections (DuckDB, Garmin)
-
-**5.2 - Create DAGs**
-
-- [ ] `airflow/dags/garmin_ingestion.py`
-  - Schedule: Daily at 6 AM
-  - Task 1: Fetch Garmin data
-  - Task 2: Load to DuckDB bronze
-- [ ] `airflow/dags/dbt_orchestration.py`
-  - Schedule: After ingestion
-  - Task 1: `dbt run` (all models)
-  - Task 2: `dbt test` (data quality)
-- [ ] `airflow/dags/weekly_report.py` (optional)
-  - Schedule: Every Monday
-  - Task: Generate AI summary email
-
-**5.3 - Monitoring & Alerts**
-
-- [ ] Set up email alerts for failures
-- [ ] Add retry logic with exponential backoff
-- [ ] Log monitoring dashboard
-
-#### Sample DAG Structure
-
-```python
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from datetime import datetime, timedelta
-
-with DAG(
-    'garmin_to_gold',
-    schedule_interval='0 6 * * *',  # Daily at 6 AM
-    start_date=datetime(2025, 2, 1),
-    catchup=False,
-) as dag:
-
-    ingest = PythonOperator(
-        task_id='ingest_garmin',
-        python_callable=ingest_garmin_data,
-    )
-
-    dbt_run = BashOperator(
-        task_id='dbt_run',
-        bash_command='cd dbt_project && dbt run',
-    )
-
-    ingest >> dbt_run
-```
+- [ ] `airflow/dags/garmin_ingestion.py` — daily at 6 AM, fetch + load to bronze
+- [ ] `airflow/dags/dbt_orchestration.py` — `dbt run` + `dbt test` after ingestion
+- [ ] Email alerts for pipeline failures
 
 ---
 
 ### Phase 6: Advanced Features (Future)
 
-**Machine Learning**
-
-- [ ] Predict race times based on training
-- [ ] Injury risk prediction model
-- [ ] Optimal training load calculator
-
-**Additional Data Sources**
-
-- [ ] Strava integration
-- [ ] Apple Health integration
-- [ ] Weather API (correlate conditions with performance)
-
-**Social Features**
-
-- [ ] Multi-user support
-- [ ] Leaderboards
-- [ ] Share achievements
-
-**Mobile App**
-
-- [ ] React Native app
-- [ ] Push notifications
-- [ ] Quick data entry
+- [ ] Strava integration (alternative/complementary data source)
+- [ ] RAG for running knowledge base (LlamaIndex / LangGraph)
+- [ ] ML injury risk prediction model
+- [ ] Streamlit Cloud deployment (free tier — public portfolio link)
+- [ ] GitHub Actions CI/CD (dbt test on push)
 
 ---
 
@@ -455,190 +226,105 @@ with DAG(
 
 ```
 running-performance-analyzer/
-├── .env                           # ✅ Configured
-├── .gitignore                     # ✅ Configured
-├── docker-compose.yml             # ✅ Configured (Airflow ready)
-├── requirements.txt               # ✅ Installed
-├── requirements-minimal.txt       # ✅ Installed
+├── .env                              ✅ Configured
+├── .gitignore                        ✅ Configured
+├── docker-compose.yml                ✅ Configured (Airflow ready)
+├── requirements.txt                  ✅ Installed
 │
-├── airflow/                       # ⏳ TODO: Create DAGs
-│   ├── dags/
-│   └── requirements.txt
+├── ingestion/                        ✅ COMPLETE
+│   ├── config.py
+│   ├── utils.py
+│   ├── garmin_connector.py           ✅ (includes event_type)
+│   ├── duckdb_manager.py             ✅ (includes migrate_add_event_type)
+│   ├── ingest_garmin.py
+│   └── test_connector.py
 │
-├── dbt_project/                   # 🎯 IN PROGRESS
-│   ├── dbt_project.yml           # ✅
+├── dbt_project/                      ✅ COMPLETE
 │   ├── models/
-│   │   ├── sources.yml           # ✅ 15/15 tests passing
-│   │   ├── staging/              # ✅ COMPLETE
-│   │   │   ├── stg_garmin_activities.sql  # ✅ 31/32 tests
-│   │   │   ├── stg_garmin_health.sql      # ✅ 27/27 tests
-│   │   │   └── schema_staging.yml
-│   │   ├── intermediate/         # ✅ COMPLETE
-│   │   │   ├── int_unified_activities.sql # ✅ 29/29 tests
-│   │   │   └── schema_intermediate.yml
-│   │   └── marts/                # ⏳ TODO: Create
+│   │   ├── staging/                  ✅ stg_garmin_activities, stg_garmin_health
+│   │   ├── intermediate/             ✅ int_unified_activities
+│   │   └── marts/                    ✅ 4 gold layer marts
+│   └── tests/
 │
-├── ingestion/                     # ✅ COMPLETE
-│   ├── config.py                 # ✅
-│   ├── utils.py                  # ✅
-│   ├── garmin_connector.py       # ✅
-│   ├── duckdb_manager.py         # ✅
-│   ├── ingest_garmin.py          # ✅
-│   └── test_connector.py         # ✅
+├── streamlit_app/                    ✅ COMPLETE
+│   ├── app.py                        ✅ Home page (light theme)
+│   ├── pages/
+│   │   ├── 1_📊_Dashboard.py         ✅
+│   │   ├── 2_📈_Training_Analysis.py ✅
+│   │   ├── 3_🏃_Race_Performance.py  ✅
+│   │   └── 4_❤️_Health.py            ✅
+│   ├── components/
+│   │   ├── metrics.py                ✅
+│   │   └── charts.py                 ✅
+│   └── utils/
+│       ├── database.py               ✅
+│       ├── formatting.py             ✅
+│       └── constants.py              ✅
 │
-├── ai_engine/                     # ⏳ TODO: Phase 4
+├── ai_engine/                        ⏳ TODO: Phase 4
 │   ├── llm_analyzer.py
 │   └── prompts/
 │
-├── streamlit_app/                 # ⏳ TODO: Phase 3
-│   ├── app.py
-│   ├── pages/
-│   └── components/
+├── airflow/                          ⏳ TODO: Phase 5
+│   └── dags/
 │
 ├── data/
 │   └── duckdb/
-│       └── running_analytics.duckdb  # ✅ 3 activities, 8 health records
+│       └── running_analytics.duckdb  ✅ Active (23 activities, ~10 days health)
 │
-├── scripts/                       # ✅ COMPLETE
-│   └── query_data.py             # ✅
-│
-└── tests/                         # ⏳ TODO: Add unit tests
+└── scripts/
+    └── query_data.py                 ✅
 ```
 
 ---
 
-## 🚀 How to Continue
-
-### Immediate Next Session (dbt)
-
-**Before starting a new Claude conversation:**
-
-1. Make sure latest code is committed to Git
-2. Have `NEXT_STEPS.md` ready to share
-3. Have your data synced and verified
-
-**In new conversation, say:**
-
-```
-I'm working on a running analytics project. I've completed Phase 1
-(data ingestion from Garmin to DuckDB). Now I need to create dbt
-transformations (Phase 2).
-
-Here's my NEXT_STEPS.md: [paste this file]
-
-Current status:
-- ✅ Garmin API → DuckDB bronze layer working
-- ✅ 3 activities, 8 health records ingested
-- 🎯 Need: dbt models (staging, intermediate, marts)
-
-Please help me set up dbt and create the first staging models.
-```
-
-### Weekly Workflow (Once Airflow is set up)
+## 🚀 How to Run
 
 ```bash
-# Data will sync automatically via Airflow
-# Just check the dashboard!
+# Activate Streamlit environment
+source venv_streamlit/bin/activate
 
-# Manual sync if needed:
-python -m ingestion.ingest_garmin
+# Sync latest Garmin data (add --days 90 to backfill health history)
+python -m ingestion.ingest_garmin --days 7
 
-# Query your data:
-python scripts/query_data.py --stats
+# Rebuild dbt gold layer
+cd dbt_project && dbt run && cd ..
 
-# View dashboard:
+# Launch dashboard
 streamlit run streamlit_app/app.py
+# → http://localhost:8501
 ```
 
 ---
 
-## 📚 Learning Resources
+## 🎓 Success Criteria for Job Applications
 
-### dbt
+Your project now demonstrates:
 
-- [dbt Courses](https://courses.getdbt.com/)
-- [dbt Best Practices](https://docs.getdbt.com/guides/best-practices)
-- [Analytics Engineering Guide](https://www.getdbt.com/analytics-engineering/)
+- ✅ **Analytics Engineering**: dbt medallion architecture, data modelling, testing
+- ✅ **Data Engineering**: Garmin API integration, DuckDB pipeline, incremental loads
+- ✅ **Data Analytics**: SQL aggregations, rolling averages, recovery scoring
+- ✅ **Data Visualisation**: Streamlit + Plotly multi-page dashboard
+- ⏳ **AI Engineering**: Claude API integration, prompt engineering ← *Phase 4*
+- ⏳ **Orchestration**: Airflow DAGs, scheduling ← *Phase 5*
 
-### Streamlit
-
-- [30 Days of Streamlit](https://30days.streamlit.app/)
-- [Streamlit Cheat Sheet](https://docs.streamlit.io/library/cheatsheet)
-
-### LLM / AI
-
-- [Anthropic Cookbook](https://github.com/anthropics/anthropic-cookbook)
-- [LangChain Tutorials](https://python.langchain.com/docs/tutorials)
-- [Prompt Engineering Course](https://www.deeplearning.ai/short-courses/chatgpt-prompt-engineering-for-developers/)
-
-### Data Engineering
-
-- [Fundamentals of Data Engineering](https://www.oreilly.com/library/view/fundamentals-of-data/9781098108298/)
-- [The Data Warehouse Toolkit](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/books/)
+### Portfolio talking points (ready to use)
+- "Built end-to-end data pipeline: Garmin Connect API → DuckDB medallion architecture → dbt transformations → Streamlit dashboard"
+- "Implemented race detection using Garmin's event_type field — fixed false positives that distance-based heuristics produced"
+- "Calculated custom recovery score (0–100) from sleep, HRV, resting HR, stress and Body Battery using dbt SQL"
+- "Built 4-page interactive analytics dashboard with Plotly charts and Garmin-inspired design"
+- "Resolved Streamlit ↔ DuckDB Arrow serialisation incompatibility by switching to session_state caching"
 
 ---
 
-## 🎯 Success Criteria
+## 💡 Starting the Next Session
 
-### For Job Applications
+Share this file at the start of a new Claude conversation, then say:
 
-Your completed project should demonstrate:
+```
+I'm working on a running analytics portfolio project.
+Phases 1–3 are complete (Garmin ingestion → dbt → Streamlit dashboard).
+Now I want to build Phase 4: the AI Coach page using Claude API.
 
-- ✅ **Analytics Engineering**: dbt transformations, medallion architecture, data modeling
-- ✅ **Data Engineering**: API integration, orchestration, data pipelines
-- ✅ **AI Engineering**: LLM integration, prompt engineering, RAG
-- ✅ **Data Analytics**: SQL queries, visualizations, metrics
-
-### GitHub README Should Include
-
-- Project overview and motivation
-- Architecture diagram
-- Tech stack with logos
-- Screenshots of dashboard
-- Setup instructions
-- Sample queries and outputs
-- Link to live demo (Streamlit Cloud)
-
-### Portfolio Talking Points
-
-- "Built end-to-end data pipeline processing 1000+ activities"
-- "Implemented medallion architecture with dbt for data transformation"
-- "Created AI-powered coaching using Claude API with RAG"
-- "Automated daily sync with Airflow orchestration"
-- "Interactive dashboard with Streamlit and Plotly"
-
----
-
-## ❓ Common Questions
-
-**Q: Do I need to finish everything before applying for jobs?**
-A: No! Even Phase 1 + 2 (ingestion + dbt) is impressive. Add phases incrementally.
-
-**Q: Should I deploy this publicly?**
-A: Yes! Deploy Streamlit to Streamlit Cloud (free). Makes your portfolio much stronger.
-
-**Q: Can I use this for other sports?**
-A: Absolutely! The architecture works for cycling, swimming, etc. Just adjust data sources.
-
-**Q: How do I explain this to recruiters?**
-A: "Built a personal analytics platform to demonstrate modern data engineering skills. Real-world use case with my own running data."
-
----
-
-## 🙏 Good Luck!
-
-You've built a solid foundation. The hard part (API integration, database setup) is done.
-
-**Next up: dbt transformations** - this is where data engineering really shines!
-
-Keep pushing, and remember: this project is your ticket to a data/AI engineering role! 🚀
-
----
-
-**Questions? Issues?**
-
-- Check dbt/Streamlit/Claude API documentation
-- Use Claude for debugging help
-- Join data engineering communities (dbt Slack, r/dataengineering)
-
-**Happy coding!** 💪
+Here's my NEXT_STEPS.md: [paste this file]
+```
