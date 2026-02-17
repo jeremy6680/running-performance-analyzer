@@ -213,8 +213,8 @@ def render_race_highlights(df: pd.DataFrame) -> None:
 
     Args:
         df: DataFrame from load_race_data().
-            Expected columns: race_date, is_pr, distance_category,
-            avg_pace_min_per_km.
+            Expected columns: race_date, is_personal_record, race_distance_category,
+            pace_min_per_km.
 
     Returns:
         None. Renders directly into the Streamlit page.
@@ -226,16 +226,16 @@ def render_race_highlights(df: pd.DataFrame) -> None:
     total_races = len(df)
 
     # Find the most recent PR across all distances
-    pr_df = df[df["is_pr"] == True]
+    pr_df = df[df["is_personal_record"] == True]
     last_pr_date = pr_df["race_date"].max() if not pr_df.empty else None
 
     # Best pace for 10K races (lowest pace = fastest)
-    df_10k = df[df["distance_category"] == "10K"]
-    best_10k_pace = df_10k["avg_pace_min_per_km"].min() if not df_10k.empty else None
+    df_10k = df[df["race_distance_category"] == "10K"]
+    best_10k_pace = df_10k["pace_min_per_km"].min() if not df_10k.empty else None
 
     # Best pace for half marathon races
-    df_hm = df[df["distance_category"] == "Half Marathon"]
-    best_hm_pace = df_hm["avg_pace_min_per_km"].min() if not df_hm.empty else None
+    df_hm = df[df["race_distance_category"] == "Half Marathon"]
+    best_hm_pace = df_hm["pace_min_per_km"].min() if not df_hm.empty else None
 
     col1, col2, col3, col4 = st.columns(4)
 

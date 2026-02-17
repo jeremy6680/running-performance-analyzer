@@ -192,8 +192,8 @@ def chart_training_load(df: pd.DataFrame, weeks: int = 16) -> go.Figure:
 
     Args:
         df: DataFrame from load_training_data().
-            Expected columns: week_start_date, weekly_trimp,
-            rolling_4w_trimp (optional), rolling_8w_trimp (optional).
+            Expected columns: week_start_date, total_training_load,
+            rolling_4wk_avg_training_load (optional), rolling_8wk_avg_training_load (optional).
         weeks: Number of recent weeks to display.
 
     Returns:
@@ -214,7 +214,7 @@ def chart_training_load(df: pd.DataFrame, weeks: int = 16) -> go.Figure:
     # --- Area fill: weekly TRIMP ---
     fig.add_trace(go.Scatter(
         x=x_labels,
-        y=data["weekly_trimp"],
+        y=data["total_training_load"],
         name="Weekly Load (TRIMP)",
         mode="lines+markers",
         fill="tozeroy",                             # Fill area under the line
@@ -566,8 +566,8 @@ def chart_race_paces(df: pd.DataFrame) -> go.Figure:
     Args:
         df: DataFrame from load_race_data(), sorted ASC by date for
             left-to-right chronological display.
-            Expected columns: race_date, avg_pace_min_per_km,
-            is_pr, distance_category.
+            Expected columns: race_date, pace_min_per_km,
+            is_personal_record, race_distance_category.
 
     Returns:
         go.Figure: Bar chart with PR highlights and inverted Y-axis.
@@ -577,7 +577,7 @@ def chart_race_paces(df: pd.DataFrame) -> go.Figure:
 
     data = (
         df.sort_values("race_date", ascending=True)
-        .dropna(subset=["avg_pace_min_per_km"])
+        .dropna(subset=["pace_min_per_km"])
         .reset_index(drop=True)
     )
 
@@ -587,22 +587,22 @@ def chart_race_paces(df: pd.DataFrame) -> go.Figure:
     # Color each bar: gold for PR, primary blue for regular race
     bar_colors = [
         COLORS["warning"] if is_pr else COLORS["primary"]
-        for is_pr in data["is_pr"]
+        for is_pr in data["is_personal_record"]
     ]
 
     # Format labels for x-axis: "Mar 15" + distance category
     x_labels = [
         f"{pd.Timestamp(d).strftime('%b %y')}<br>{cat}"
-        for d, cat in zip(data["race_date"], data["distance_category"])
+        for d, cat in zip(data["race_date"], data["race_distance_category"])
     ]
 
-    hover_paces = [format_pace_short(p) for p in data["avg_pace_min_per_km"]]
+    hover_paces = [format_pace_short(p) for p in data["pace_min_per_km"]]
 
     fig = go.Figure()
 
     fig.add_trace(go.Bar(
         x=x_labels,
-        y=data["avg_pace_min_per_km"],
+        y=data["pace_min_per_km"],
         marker_color=bar_colors,
         text=hover_paces,
         textposition="outside",         # Show pace label above each bar
@@ -621,7 +621,7 @@ def chart_race_paces(df: pd.DataFrame) -> go.Figure:
         yaxis={
             "title": "Pace (min/km)",
             "autorange": "reversed",    # Faster (lower) = higher on chart
-            "tickvals": data["avg_pace_min_per_km"].tolist(),
+            "tickvals": data["pace_min_per_km"].tolist(),
             "ticktext": hover_paces,
         },
         showlegend=True,

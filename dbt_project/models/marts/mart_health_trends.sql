@@ -88,9 +88,6 @@ health_with_trends as (
         steps as total_steps,
         daily_distance_km,
         
-        -- Existing recovery score from staging
-        recovery_score as stg_recovery_score,
-        
         -- Calculate 7-day rolling averages for sleep
         avg(sleep_hours) over (
             order by health_date 
@@ -108,9 +105,15 @@ health_with_trends as (
             rows between 6 preceding and current row
         ) as rhr_7day_avg,
         
+        -- Calculate 7-day rolling average for HRV
+        avg(hrv_avg) over (
+            order by health_date
+            rows between 6 preceding and current row
+        ) as hrv_7day_avg,
+
         -- Calculate 7-day rolling average for stress
         avg(stress_avg) over (
-            order by health_date 
+            order by health_date
             rows between 6 preceding and current row
         ) as stress_7day_avg,
         
@@ -284,6 +287,7 @@ select
     
     -- HRV metrics
     hrv_avg as hrv_numeric,
+    hrv_7day_avg,
     hrv_status,
     hrv_category,
     
@@ -306,12 +310,11 @@ select
     
     -- Activity metrics
     total_steps,
-    daily_distance_km as total_distance_km,
+    daily_distance_km,
     steps_7day_avg,
     
     -- Recovery score and readiness
     recovery_score,
-    stg_recovery_score,  -- Keep the staging recovery score for comparison
     training_readiness,
     
     -- Weekly aggregations
