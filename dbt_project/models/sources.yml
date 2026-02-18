@@ -181,6 +181,44 @@ sources:
       # -----------------------------------------------------------------------
       # Table: raw_garmin_daily_health
       # -----------------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # Table: raw_garmin_calendar_events
+      # -----------------------------------------------------------------------
+      - name: raw_garmin_calendar_events
+        description: >
+          Race events fetched from the Garmin Connect calendar.
+          Includes both past and upcoming races the user has registered for.
+          Each row = one unique race event (keyed on shareableEventUuid).
+
+        meta:
+          primary_key: event_uuid
+          grain: one_row_per_race_event
+          contains_pii: false
+
+        freshness:
+          warn_after: {count: 7, period: day}
+
+        columns:
+          - name: event_uuid
+            description: Garmin's shareable event UUID (stable primary key)
+            data_tests:
+              - unique
+              - not_null
+          - name: title
+            description: Race event title from Garmin Connect
+            data_tests:
+              - not_null
+          - name: event_date
+            description: Date of the race
+            data_tests:
+              - not_null
+          - name: is_race
+            description: Always TRUE (only race events are ingested)
+          - name: inserted_at
+            description: Timestamp when record was loaded into DuckDB
+            data_tests:
+              - not_null
+
       - name: raw_garmin_daily_health
         description: >
           Daily aggregated health metrics from Garmin Connect.

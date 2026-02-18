@@ -45,7 +45,19 @@ with races_base as (
     order by activity_date
 ),
 
--- Step 2: Calculate days since previous race
+-- Step 2: Join race goals (from seed CSV) to compare planned vs actual times
+-- LEFT JOIN: races without a goal entry still appear, goal columns are NULL
+race_goals as (
+    select
+        race_date,
+        race_name          as goal_race_name,
+        goal_time_seconds,
+        goal_time_formatted as goal_time_formatted_target,
+        notes              as goal_notes
+    from {{ ref('race_goals') }}
+),
+
+-- Step 3: Calculate days since previous race
 race_intervals as (
     select
         *,
@@ -61,7 +73,7 @@ race_intervals as (
     from races_base
 ),
 
--- Step 3: Calculate Personal Records (PRs) per distance category
+-- Step 4: Calculate Personal Records (PRs) per distance category
 personal_records as (
     select
         race_distance_category,
@@ -72,7 +84,7 @@ personal_records as (
     group by race_distance_category
 ),
 
--- Step 4: Calculate training pace context (30 days before race)
+-- Step 5: Calculate training pace context (30 days before race)
 training_context as (
     select
         r.activity_id,
@@ -91,7 +103,7 @@ training_context as (
     group by r.activity_id
 ),
 
--- Step 5: Calculate race performance metrics
+-- Step 6: Calculate race performance metrics
 race_metrics as (
     select
         ri.*,
@@ -100,6 +112,28 @@ race_metrics as (
         tc.avg_training_pace_30d,
         tc.total_training_distance_30d,
         tc.training_runs_30d,
+
+        -- Goal fields from seed (NULL if no goal was set for this race)
+        rg.goal_race_name,
+        rg.goal_time_seconds,
+        rg.goal_time_formatted_target,
+        rg.goal_notes,
+
+        -- Goal achievement: actual vs target in seconds
+        case
+            when rg.goal_time_seconds is not null
+            then round(ri.duration_minutes * 60 - rg.goal_time_seconds, 0)
+            else null
+        end as seconds_vs_goal,
+
+        -- Goal achievement label
+        case
+            when rg.goal_time_seconds is null then 'No goal set'
+            when ri.duration_minutes * 60 <= rg.goal_time_seconds then 'Goal achieved ✅'
+            when ri.duration_minutes * 60 <= rg.goal_time_seconds * 1.02 then 'Just missed (<2%)'
+            when ri.duration_minutes * 60 <= rg.goal_time_seconds * 1.05 then 'Close (2–5%)'
+            else 'Missed goal (>5%)'
+        end as goal_achievement,
         
         -- Is this a PR?
         case
@@ -148,9 +182,12 @@ race_metrics as (
         on ri.race_distance_category = pr.race_distance_category
     left join training_context tc
         on ri.activity_id = tc.activity_id
+    -- Join on exact date match: one row per race in the seed CSV
+    left join race_goals rg
+        on cast(ri.activity_date as date) = rg.race_date
 ),
 
--- Step 6: Calculate performance trends
+-- Step 7: Calculate performance trends
 performance_trends as (
     select
         *,
@@ -221,6 +258,14 @@ final as (
         
         -- Race intervals
         days_since_last_race,
+
+        -- Goal vs actual (from race_goals seed)
+        goal_race_name,
+        goal_time_formatted_target,
+        goal_time_seconds,
+        seconds_vs_goal,
+        goal_achievement,
+        goal_notes,
         
         -- Performance trends
         round(pace_ma_3_races, 2) as pace_ma_3_races,

@@ -173,6 +173,14 @@ class DuckDBManager:
                 device_name VARCHAR,
                 location_name VARCHAR,
                 
+                -- Weather at time of activity (fetched via get_activity_weather)
+                weather_temp_c DOUBLE,          -- Temperature in Celsius
+                weather_feels_like_c DOUBLE,    -- Feels-like temperature in Celsius
+                weather_humidity_pct INTEGER,   -- Humidity percentage (0-100)
+                weather_wind_speed_ms DOUBLE,   -- Wind speed in metres per second
+                weather_condition VARCHAR,      -- e.g. 'CLEAR', 'RAIN', 'CLOUDY'
+                weather_precipitation_mm DOUBLE, -- Precipitation in mm
+                
                 -- Audit fields
                 inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -425,6 +433,161 @@ class DuckDBManager:
             logger.success("✅ Migration: added event_type column to raw_garmin_activities")
         else:
             logger.info("Migration not needed: event_type column already exists")
+
+    def migrate_add_weather_columns(self) -> None:
+        """
+        Migration: add weather columns to raw_garmin_activities if they don't exist.
+
+        Safe to run multiple times — checks for column existence first.
+        Adds 6 columns capturing weather conditions at the time of each activity.
+
+        Example:
+            >>> manager.migrate_add_weather_columns()
+        """
+        conn = self.connect()
+
+        # Fetch all existing column names for this table
+        existing_cols = [
+            row[0]
+            for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'raw_garmin_activities'"
+            ).fetchall()
+        ]
+
+        # Map: column_name -> SQL definition to add
+        # We add all weather columns in one block for clarity
+        weather_cols = {
+            "weather_temp_c":         "DOUBLE",           # Air temperature in Celsius
+            "weather_feels_like_c":   "DOUBLE",           # Apparent temperature in Celsius
+            "weather_humidity_pct":   "INTEGER",          # Relative humidity 0-100
+            "weather_wind_speed_ms":  "DOUBLE",           # Wind speed in metres per second
+            "weather_condition":      "VARCHAR",          # e.g. 'CLEAR', 'RAIN', 'CLOUDY'
+            "weather_precipitation_mm": "DOUBLE",        # Precipitation in mm
+        }
+
+        added = []
+        for col_name, col_type in weather_cols.items():
+            if col_name not in existing_cols:
+                conn.execute(
+                    f"ALTER TABLE raw_garmin_activities ADD COLUMN {col_name} {col_type}"
+                )
+                added.append(col_name)
+
+        if added:
+            logger.success(f"✅ Migration: added weather columns: {', '.join(added)}")
+        else:
+            logger.info("Migration not needed: all weather columns already exist")
+
+    def create_calendar_events_table(self) -> None:
+        """
+        Create the raw_garmin_calendar_events bronze table if it doesn't exist.
+
+        This table stores race events fetched from the Garmin Connect calendar.
+        It is part of the bronze (raw) layer — data is stored as-is from the API.
+
+        Grain: One row per unique calendar race event (keyed on event_uuid).
+        Idempotent: safe to call multiple times.
+
+        Example:
+            >>> manager.create_calendar_events_table()
+        """
+        self.execute("""
+            CREATE TABLE IF NOT EXISTS raw_garmin_calendar_events (
+                -- Primary key: Garmin's shareable event UUID
+                -- This UUID is stable across re-fetches of the same event
+                event_uuid VARCHAR PRIMARY KEY,
+
+                -- Event details
+                title    VARCHAR,        -- Full event title from Garmin calendar
+                event_date DATE,         -- Date of the race
+                location VARCHAR,        -- City/country (e.g. 'Cannes, FR')
+
+                -- Distance
+                distance_m   DOUBLE,     -- Official distance in metres (from completionTarget)
+                distance_km  DOUBLE,     -- Distance in kilometres (computed)
+
+                -- Race classification — same categories as stg_garmin_activities
+                -- '5K' | '10K' | 'Half Marathon' | 'Marathon' | 'Ultra' | NULL
+                race_distance_category VARCHAR,
+
+                -- Timing
+                start_time VARCHAR,      -- HH:MM start time (e.g. '08:30')
+                timezone   VARCHAR,      -- IANA timezone id (e.g. 'Europe/Paris')
+
+                -- Flags
+                is_race    BOOLEAN,      -- Always TRUE (we only store race events)
+                subscribed BOOLEAN,      -- TRUE if user subscribed to this event
+
+                -- External link to race page
+                url VARCHAR,
+
+                -- Audit fields
+                inserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.success("✅ Created table: raw_garmin_calendar_events")
+
+    def insert_calendar_events(self, events_df: pd.DataFrame) -> int:
+        """
+        Upsert calendar race events into raw_garmin_calendar_events.
+
+        Uses INSERT OR REPLACE semantics so that re-running ingestion
+        refreshes event details (e.g. title edits, new subscriptions)
+        without creating duplicates.
+
+        Args:
+            events_df: DataFrame returned by GarminConnector.fetch_calendar_events()
+
+        Returns:
+            Number of rows inserted/updated.
+
+        Example:
+            >>> events = connector.fetch_calendar_events()
+            >>> count = manager.insert_calendar_events(events)
+            >>> print(f"Upserted {count} calendar events")
+        """
+        if events_df.empty:
+            logger.warning("No calendar events to insert (empty DataFrame)")
+            return 0
+
+        conn = self.connect()
+        df = events_df.copy()
+
+        # Ensure date column is the correct type (Python date, not datetime)
+        if "event_date" in df.columns:
+            df["event_date"] = pd.to_datetime(df["event_date"]).dt.date
+
+        # Discover the columns that exist in both the DataFrame and the table,
+        # excluding audit columns (those are set automatically).
+        table_cols_result = conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'raw_garmin_calendar_events' "
+            "AND column_name NOT IN ('inserted_at', 'updated_at') "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+        table_cols = [row[0] for row in table_cols_result]
+        insert_cols = [c for c in table_cols if c in df.columns]
+
+        col_list    = ", ".join(insert_cols)
+        select_list = ", ".join([f'df."{c}"' for c in insert_cols])
+
+        # INSERT OR REPLACE: if event_uuid already exists, overwrite the row.
+        # DuckDB uses INSERT OR REPLACE for upsert-by-primary-key.
+        conn.execute(f"""
+            INSERT OR REPLACE INTO raw_garmin_calendar_events
+                ({col_list}, inserted_at, updated_at)
+            SELECT
+                {select_list},
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            FROM df
+        """)
+
+        count = len(df)
+        logger.success(f"✅ Upserted {count} calendar events into raw_garmin_calendar_events")
+        return count
 
     def get_activities_count(self) -> int:
         """Get total count of activities in database."""

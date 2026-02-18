@@ -82,10 +82,27 @@ def ingest_garmin_data(days: int = 7, mode: str = "upsert") -> dict:
         else:
             logger.warning(f"⚠️  No health data found in last {days} days")
         
+        # Fetch calendar race events
+        logger.info("\n📅 Fetching calendar race events...")
+        calendar_df = connector.fetch_calendar_events(months_ahead=6, months_back=12)
+
+        if not calendar_df.empty:
+            logger.info(f"✅ Fetched {len(calendar_df)} calendar race events")
+        else:
+            logger.warning("⚠️  No calendar race events found")
+
         # Initialize DuckDB
         logger.info("\n💾 Initializing DuckDB...")
         db_manager = DuckDBManager()
         db_manager.initialize_database()
+
+        # Run migrations (safe to run every time — they check before altering)
+        logger.info("🔧 Running database migrations...")
+        db_manager.migrate_add_event_type()
+        db_manager.migrate_add_weather_columns()
+
+        # Create calendar events table (idempotent — uses CREATE TABLE IF NOT EXISTS)
+        db_manager.create_calendar_events_table()
         
         # Insert activities
         if not activities_df.empty:
@@ -98,13 +115,20 @@ def ingest_garmin_data(days: int = 7, mode: str = "upsert") -> dict:
             logger.info(f"\n📥 Loading health data into DuckDB (mode: {mode})...")
             health_count = db_manager.insert_daily_health(health_df, mode=mode)
             stats['health_count'] = health_count
+
+        # Insert calendar events (always upsert — INSERT OR REPLACE by event_uuid)
+        if not calendar_df.empty:
+            logger.info("\n📥 Loading calendar events into DuckDB...")
+            calendar_count = db_manager.insert_calendar_events(calendar_df)
+            stats['calendar_count'] = calendar_count
         
         # Summary
         logger.info("\n" + "=" * 70)
         logger.info("📊 INGESTION SUMMARY")
         logger.info("=" * 70)
-        logger.info(f"Activities loaded: {stats['activities_count']}")
-        logger.info(f"Health records loaded: {stats['health_count']}")
+        logger.info(f"Activities loaded:      {stats['activities_count']}")
+        logger.info(f"Health records loaded:  {stats['health_count']}")
+        logger.info(f"Calendar events loaded: {stats.get('calendar_count', 0)}")
         logger.info(f"Database: {db_manager.db_path}")
         logger.info("\n📈 Database Status:")
         logger.info(f"  Total activities: {db_manager.get_activities_count()}")

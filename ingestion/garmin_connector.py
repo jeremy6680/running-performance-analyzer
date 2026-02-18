@@ -227,6 +227,82 @@ class GarminConnector:
             logger.error(f"❌ Error fetching activities: {e}")
             raise
     
+    def _fetch_weather_for_activity(self, activity_id: str) -> Dict:
+        """
+        Fetch weather data for a single activity from Garmin Connect.
+
+        Garmin stores weather conditions at the start of each GPS activity.
+        Not all activities have weather data (e.g. treadmill runs).
+
+        Args:
+            activity_id: Garmin activity ID (as string)
+
+        Returns:
+            Dictionary with normalised weather fields, all None if unavailable.
+            Keys: weather_temp_c, weather_feels_like_c, weather_humidity_pct,
+                  weather_wind_speed_ms, weather_condition, weather_precipitation_mm
+        """
+        # Default: all None (graceful fallback for activities without weather)
+        empty = {
+            "weather_temp_c": None,
+            "weather_feels_like_c": None,
+            "weather_humidity_pct": None,
+            "weather_wind_speed_ms": None,
+            "weather_condition": None,
+            "weather_precipitation_mm": None,
+        }
+
+        try:
+            raw = self.client.get_activity_weather(activity_id)
+
+            # Garmin returns a list; take the first entry (start-of-activity snapshot)
+            # Some activities return an empty list or None
+            if not raw:
+                return empty
+
+            # Handle both list and dict responses
+            weather = raw[0] if isinstance(raw, list) else raw
+
+            # Temperature: Garmin returns Celsius by default in the Connect app,
+            # but the raw API value may be in tenths of degrees — we normalise here.
+            # The field name varies between API versions; we try both.
+            temp_raw = weather.get("temperature") or weather.get("temp")
+            feels_raw = weather.get("apparentTemperature") or weather.get("feelsLike")
+
+            # If value looks like it's in tenths of a degree (e.g. 185 instead of 18.5)
+            # this can happen with some Garmin firmware/API combos — guard against it.
+            def normalise_temp(val):
+                """Convert temperature to Celsius; guard against tenths-of-degree values."""
+                if val is None:
+                    return None
+                # Values above 60°C or below -60°C are almost certainly tenths of a degree
+                if val > 60 or val < -60:
+                    return round(val / 10, 1)
+                return round(float(val), 1)
+
+            # Wind speed: Garmin returns km/h; convert to m/s for SI consistency
+            wind_kmh = weather.get("windSpeed") or weather.get("wind_speed")
+            wind_ms = round(wind_kmh / 3.6, 2) if wind_kmh is not None else None
+
+            # Weather condition: standardise to uppercase string
+            condition = weather.get("weatherType") or weather.get("condition")
+            if condition:
+                condition = str(condition).upper().replace(" ", "_")
+
+            return {
+                "weather_temp_c": normalise_temp(temp_raw),
+                "weather_feels_like_c": normalise_temp(feels_raw),
+                "weather_humidity_pct": weather.get("relativeHumidity") or weather.get("humidity"),
+                "weather_wind_speed_ms": wind_ms,
+                "weather_condition": condition,
+                "weather_precipitation_mm": weather.get("precipitation"),
+            }
+
+        except Exception as e:
+            # Weather fetch is non-critical — log a warning but don't fail ingestion
+            logger.warning(f"Could not fetch weather for activity {activity_id}: {e}")
+            return empty
+
     def _transform_activities(self, raw_activities: List[Dict]) -> pd.DataFrame:
         """
         Transform raw Garmin activities into clean DataFrame.
@@ -238,8 +314,12 @@ class GarminConnector:
             Cleaned and standardized DataFrame
         """
         transformed = []
+        total = len(raw_activities)
         
-        for activity in raw_activities:
+        for idx, activity in enumerate(raw_activities, start=1):
+            activity_id = str(activity.get("activityId"))
+            logger.debug(f"Processing activity {idx}/{total}: {activity_id}")
+
             # Extract and transform key fields
             record = {
                 # Identifiers
@@ -303,7 +383,18 @@ class GarminConnector:
                 )
             else:
                 record["avg_pace_min_km"] = None
-            
+
+            # Fetch weather for this activity.
+            # One extra API call per activity — adds ~0.5s per activity.
+            # Non-critical: failures are caught in _fetch_weather_for_activity
+            # and return None values rather than breaking ingestion.
+            logger.debug(f"Fetching weather for activity {idx}/{total}...")
+            weather = self._fetch_weather_for_activity(activity_id)
+            record.update(weather)
+
+            # Small delay to avoid Garmin rate-limiting (especially for weather calls)
+            time.sleep(0.3)
+
             transformed.append(record)
         
         df = pd.DataFrame(transformed)
@@ -412,6 +503,146 @@ class GarminConnector:
         logger.success(f"✅ Successfully fetched health data for {len(df)} days")
         return df
     
+    def fetch_calendar_events(self, months_ahead: int = 6, months_back: int = 12) -> pd.DataFrame:
+        """
+        Fetch race events from the Garmin Connect calendar.
+
+        The Garmin calendar stores upcoming races the user has registered for
+        via the Garmin Connect app or website.  Each event has:
+          - A title, date, and location
+          - isRace: True for race events
+          - completionTarget: distance in metres
+          - itemType: 'event' for calendar events
+
+        We fetch month-by-month because the calendar API works per-month,
+        then filter to race events only (isRace=True).
+
+        Args:
+            months_ahead: How many future months to fetch (default: 6)
+            months_back:  How many past months to fetch (default: 12)
+
+        Returns:
+            DataFrame of calendar race events.  One row per event.
+            Columns: event_uuid, title, event_date, location, distance_m,
+                     distance_km, race_distance_category, start_time,
+                     timezone, is_race, subscribed, url
+
+        Example:
+            >>> events = connector.fetch_calendar_events(months_ahead=6)
+            >>> print(events[['event_date', 'title', 'race_distance_category']])
+        """
+        self._ensure_authenticated()
+
+        today = datetime.today()
+        records = []
+        seen_uuids: set = set()  # De-duplicate events that span month boundaries
+
+        # Build list of (year, month) tuples to query
+        # month offsets: -(months_back) … 0 … +(months_ahead)
+        month_offsets = range(-months_back, months_ahead + 1)
+        months_to_fetch = []
+        for offset in month_offsets:
+            # Add offset months to today's date
+            m = today.month - 1 + offset          # 0-indexed month
+            y = today.year + m // 12
+            m = m % 12 + 1                        # back to 1-indexed
+            months_to_fetch.append((y, m))
+
+        logger.info(
+            f"Fetching calendar events: {months_back} months back, "
+            f"{months_ahead} months ahead ({len(months_to_fetch)} API calls)"
+        )
+
+        for year, month in months_to_fetch:
+            try:
+                # Garmin calendar API: month is 0-indexed in the URL
+                raw = self.client.get_calendar(year, month - 1)
+                items = raw.get("calendarItems", []) if raw else []
+
+                for item in items:
+                    # Only process race events
+                    if not item.get("isRace"):
+                        continue
+                    if item.get("itemType") != "event":
+                        continue
+
+                    # De-duplicate: events registered in multiple months show up twice
+                    uuid = item.get("shareableEventUuid") or item.get("id")
+                    if uuid and uuid in seen_uuids:
+                        continue
+                    if uuid:
+                        seen_uuids.add(uuid)
+
+                    # --- Distance ---
+                    # completionTarget holds distance in metres when unitType = 'distance'
+                    target = item.get("completionTarget") or {}
+                    distance_m = None
+                    if target.get("unitType") == "distance" and target.get("unit") == "meter":
+                        distance_m = target.get("value")
+                    distance_km = round(distance_m / 1000, 3) if distance_m else None
+
+                    # --- Race distance category ---
+                    # Same tolerances used in stg_garmin_activities for consistency
+                    def classify_distance(km):
+                        if km is None:
+                            return None
+                        if 4.8 <= km <= 5.2:
+                            return "5K"
+                        if 9.8 <= km <= 10.3:
+                            return "10K"
+                        if 20.9 <= km <= 21.4:
+                            return "Half Marathon"
+                        if 41.9 <= km <= 42.6:
+                            return "Marathon"
+                        if km > 42.6:
+                            return "Ultra"
+                        return None  # Non-standard distance (e.g. 15K, trail)
+
+                    # --- Start time ---
+                    event_time = item.get("eventTimeLocal") or {}
+                    start_time_str = event_time.get("startTimeHhMm")   # e.g. '08:30'
+                    timezone      = event_time.get("timeZoneId")       # e.g. 'Europe/Paris'
+
+                    records.append({
+                        "event_uuid":             uuid,
+                        "title":                  item.get("title"),
+                        "event_date":             pd.to_datetime(item.get("date")).date(),
+                        "location":               item.get("location"),
+                        "distance_m":             distance_m,
+                        "distance_km":            distance_km,
+                        "race_distance_category": classify_distance(distance_km),
+                        "start_time":             start_time_str,
+                        "timezone":               timezone,
+                        "is_race":                True,
+                        "subscribed":             item.get("subscribed", False),
+                        "url":                    item.get("url"),
+                    })
+
+                # Polite delay between API calls
+                time.sleep(0.2)
+
+            except Exception as e:
+                logger.warning(f"Could not fetch calendar for {year}-{month:02d}: {e}")
+                continue
+
+        if not records:
+            logger.warning("No race events found in calendar")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(records)
+
+        # Sort by event date ascending (soonest first)
+        df = df.sort_values("event_date").reset_index(drop=True)
+
+        past  = df[pd.to_datetime(df["event_date"]) <  pd.Timestamp.today()]
+        future = df[pd.to_datetime(df["event_date"]) >= pd.Timestamp.today()]
+
+        logger.success(
+            f"✅ Fetched {len(df)} calendar race events "
+            f"({len(past)} past, {len(future)} upcoming)"
+        )
+        return df
+
     def get_user_profile(self) -> Dict:
         """
         Fetch user profile information from Garmin Connect.

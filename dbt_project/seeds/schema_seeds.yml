@@ -1,0 +1,55 @@
+# =============================================================================
+# Seeds Schema - race_goals.csv
+# =============================================================================
+# Defines column types and documentation for the race_goals seed.
+# This file is loaded into DuckDB as a reference table via: dbt seed
+#
+# Grain: One row per planned race
+# Usage: Joined to mart_race_performance to compare goals vs actuals
+# =============================================================================
+
+version: 2
+
+seeds:
+  - name: race_goals
+    description: >
+      Manually maintained list of past and future races with target times.
+      Used to compare goal times against actual finish times in mart_race_performance.
+      Add a new row for each planned race, and update after the race with actual notes.
+
+    columns:
+      - name: race_date
+        description: Date of the race (YYYY-MM-DD)
+        tests:
+          - not_null
+          - unique
+
+      - name: race_name
+        description: Official name of the race (e.g. 'Marathon de Paris')
+        tests:
+          - not_null
+
+      - name: race_distance_category
+        description: >
+          Standard distance label — must match values used in stg_garmin_activities.
+          Accepted values: 5K, 10K, Half Marathon, Marathon, Ultra
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['5K', '10K', 'Half Marathon', 'Marathon', 'Ultra']
+
+      - name: distance_km
+        description: Official race distance in kilometres (e.g. 42.195 for a marathon)
+        tests:
+          - not_null
+
+      - name: goal_time_seconds
+        description: Target finish time in total seconds (e.g. 10800 = 3 hours)
+        tests:
+          - not_null
+
+      - name: goal_time_formatted
+        description: Human-readable goal time in H:MM:SS format (e.g. '3:00:00')
+
+      - name: notes
+        description: Optional free-text notes about the goal or race context

@@ -1,6 +1,19 @@
+# =============================================================================
+# Marts Schema - Training & Race Performance
+# =============================================================================
+# Gold layer marts for training analysis and race performance.
+#
+# Syntax note (dbt 1.9+):
+# - Use `data_tests:` instead of `tests:` at column level
+# - Use `arguments:` to nest values/config inside generic tests
+# =============================================================================
+
 version: 2
 
 models:
+  # ---------------------------------------------------------------------------
+  # Model: mart_training_summary
+  # ---------------------------------------------------------------------------
   - name: mart_training_summary
     description: |
       Weekly training summary with aggregated metrics and rolling averages.
@@ -33,27 +46,27 @@ models:
         description: |
           Monday of the week (ISO 8601 week start).
           This is the primary key for the mart.
-        tests:
+        data_tests:
           - unique
           - not_null
 
       - name: year
         description: Calendar year of the week
-        tests:
+        data_tests:
           - not_null
 
       - name: week_number
         description: |
           Week number of the year (1-53).
           Follows ISO 8601 week numbering.
-        tests:
+        data_tests:
           - not_null
 
       - name: week_label
         description: |
           Human-readable week label (e.g., "Week 7, 2026").
           Useful for chart labels and display.
-        tests:
+        data_tests:
           - not_null
 
       # Weekly Totals
@@ -61,56 +74,63 @@ models:
         description: |
           Total number of running activities during the week.
           Includes all activity types (training runs, races, recovery runs).
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
 
       - name: total_races
         description: Number of races run during the week (subset of total_activities)
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
 
       - name: total_distance_km
         description: |
           Sum of all running distances for the week (kilometers).
           Key metric for training volume.
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 300
+              arguments:
+                min_value: 0
+                max_value: 300
 
       - name: avg_distance_per_activity_km
         description: Average distance per activity (total_distance / total_activities)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 50
+              arguments:
+                min_value: 0
+                max_value: 50
 
       - name: max_distance_km
         description: Longest run of the week
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 50
+              arguments:
+                min_value: 0
+                max_value: 50
 
       - name: total_duration_minutes
         description: Sum of all activity durations for the week (minutes)
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 1800
+              arguments:
+                min_value: 0
+                max_value: 1800
 
       - name: avg_duration_per_activity_minutes
         description: Average duration per activity
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 300
+              arguments:
+                min_value: 0
+                max_value: 300
 
       # Pace & Heart Rate
       - name: avg_pace_min_per_km
@@ -118,156 +138,176 @@ models:
           Distance-weighted average pace for the week (min/km).
           Formula: sum(pace * distance) / sum(distance)
           This gives more weight to longer runs.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 3.0
-              max_value: 15.0
+              arguments:
+                min_value: 3.0
+                max_value: 15.0
 
       - name: avg_heart_rate_bpm
         description: |
           Average heart rate across all activities with HR data.
           Null if no activities had HR data this week.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 100
-              max_value: 200
+              arguments:
+                min_value: 100
+                max_value: 200
 
       - name: max_heart_rate_bpm
         description: Highest recorded heart rate during the week
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 100
-              max_value: 220
+              arguments:
+                min_value: 100
+                max_value: 220
 
       # Elevation
       - name: total_elevation_gain_m
         description: Sum of elevation gain for all activities (meters)
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
 
       - name: avg_elevation_per_activity_m
         description: Average elevation gain per activity
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 2000
+              arguments:
+                min_value: 0
+                max_value: 2000
 
       # Effort & Training Load
       - name: avg_effort_level
         description: |
           Average effort level for the week (1-10 scale).
           Based on pace zone classification.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 1
-              max_value: 10
+              arguments:
+                min_value: 1
+                max_value: 10
 
       - name: total_training_load
         description: |
           Sum of training load scores for the week.
           Higher values = higher training stress.
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
 
       # Heart Rate Zone Distribution (as percentages)
       - name: pct_zone1_easy
         description: Percentage of activities in Zone 1 (Easy, <70% max HR)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
 
       - name: pct_zone2_moderate
         description: Percentage of activities in Zone 2 (Moderate, 70-80% max HR)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
 
       - name: pct_zone3_tempo
         description: Percentage of activities in Zone 3 (Tempo, 80-87% max HR)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
 
       - name: pct_zone4_threshold
         description: Percentage of activities in Zone 4 (Threshold, 87-93% max HR)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
 
       - name: pct_zone5_max
         description: Percentage of activities in Zone 5 (Max, >93% max HR)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 100
+              arguments:
+                min_value: 0
+                max_value: 100
 
       # 4-Week Rolling Averages
       - name: rolling_4wk_avg_distance_km
         description: |
           4-week rolling average of weekly distance (current + 3 previous weeks).
           Smooths out week-to-week variations to show true trend.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 300
+              arguments:
+                min_value: 0
+                max_value: 300
 
       - name: rolling_4wk_avg_activities
         description: 4-week rolling average of activities per week
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 20
+              arguments:
+                min_value: 0
+                max_value: 20
 
       - name: rolling_4wk_avg_duration_minutes
         description: 4-week rolling average of total weekly duration
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 1800
+              arguments:
+                min_value: 0
+                max_value: 1800
 
       - name: rolling_4wk_avg_training_load
         description: 4-week rolling average of training load
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
 
       # 8-Week Rolling Averages
       - name: rolling_8wk_avg_distance_km
         description: |
           8-week rolling average of weekly distance.
           Provides longer-term trend perspective.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 300
+              arguments:
+                min_value: 0
+                max_value: 300
 
       - name: rolling_8wk_avg_activities
         description: 8-week rolling average of activities per week
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 20
+              arguments:
+                min_value: 0
+                max_value: 20
 
       - name: rolling_8wk_avg_duration_minutes
         description: 8-week rolling average of total weekly duration
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 1800
+              arguments:
+                min_value: 0
+                max_value: 1800
 
       - name: rolling_8wk_avg_training_load
         description: 8-week rolling average of training load
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
+              arguments:
+                min_value: 0
 
       # Comparison Metrics
       - name: distance_vs_prev_week_pct
@@ -275,49 +315,57 @@ models:
           Percentage change in distance vs previous week.
           Positive = increased distance, Negative = decreased distance.
           Null for first week of data.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: -100
-              max_value: 500
+              arguments:
+                min_value: -100
+                max_value: 500
 
       - name: activities_vs_prev_week_pct
         description: |
           Percentage change in activity count vs previous week.
           Null for first week of data.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: -100
-              max_value: 500
+              arguments:
+                min_value: -100
+                max_value: 500
 
       - name: distance_vs_4wk_avg_pct
         description: |
           Percentage change vs 4-week rolling average.
           Helps identify if current week is above/below recent trend.
           Important for injury risk assessment (rapid increases are risky).
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: -100
-              max_value: 500
+              arguments:
+                min_value: -100
+                max_value: 500
 
       # Trend Indicators
       - name: distance_trend_4wk
         description: |
           Simple trend classification: 'Increasing', 'Decreasing', or 'Stable'.
           Compares current week to 4-week average.
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
-              values: ["Increasing", "Decreasing", "Stable"]
+              arguments:
+                values: ["Increasing", "Decreasing", "Stable"]
 
       - name: training_load_trend_4wk
         description: |
           Training load trend classification: 'Increasing', 'Decreasing', or 'Stable'.
           Compares current week to 4-week average.
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
-              values: ["Increasing", "Decreasing", "Stable"]
+              arguments:
+                values: ["Increasing", "Decreasing", "Stable"]
 
+  # ---------------------------------------------------------------------------
+  # Model: mart_race_performance
+  # ---------------------------------------------------------------------------
   - name: mart_race_performance
     description: |
       Race-specific performance analysis with PR tracking and trends.
@@ -346,88 +394,97 @@ models:
       # Identifiers
       - name: race_id
         description: Unique race identifier (same as activity_id)
-        tests:
+        data_tests:
           - unique
           - not_null
 
       - name: race_date
         description: Date of the race
-        tests:
+        data_tests:
           - not_null
 
       - name: race_year
         description: Year of the race
-        tests:
+        data_tests:
           - not_null
 
       - name: race_season
         description: Season when race occurred (Spring/Summer/Fall/Winter)
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
-              values: ["Spring", "Summer", "Fall", "Winter"]
+              arguments:
+                values: ["Spring", "Summer", "Fall", "Winter"]
 
       # Race Details
       - name: race_distance_category
         description: Standardized race distance (5K, 10K, Half Marathon, Marathon, Ultra)
-        tests:
+        data_tests:
           - accepted_values:
-              values: ["5K", "10K", "Half Marathon", "Marathon", "Ultra"]
+              arguments:
+                values: ["5K", "10K", "Half Marathon", "Marathon", "Ultra"]
 
       - name: distance_km
         description: Actual race distance in kilometers
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 3.0
-              max_value: 100.0
+              arguments:
+                min_value: 3.0
+                max_value: 100.0
 
       - name: duration_minutes
         description: Race finish time in minutes
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 10.0
-              max_value: 600.0
+              arguments:
+                min_value: 10.0
+                max_value: 600.0
 
       - name: pace_min_per_km
         description: Average race pace (min/km)
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 3.0
-              max_value: 10.0
+              arguments:
+                min_value: 3.0
+                max_value: 10.0
 
       # Performance Metrics
       - name: is_personal_record
         description: True if this race set a PR for this distance
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       - name: pr_pace_min_per_km
         description: Current PR pace for this distance category
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 3.0
-              max_value: 10.0
+              arguments:
+                min_value: 3.0
+                max_value: 10.0
 
       - name: minutes_off_pr
         description: |
           How many minutes slower than PR.
           0.0 if this IS the PR, positive if slower.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0.0
-              max_value: 120.0
+              arguments:
+                min_value: 0.0
+                max_value: 120.0
 
       - name: pct_off_pr
         description: Percentage slower than PR (0% if this is the PR)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0.0
-              max_value: 100.0
+              arguments:
+                min_value: 0.0
+                max_value: 100.0
 
       - name: performance_rating
         description: |
@@ -437,42 +494,47 @@ models:
           - Good: Within 10% of PR
           - Fair: Within 20% of PR
           - Off Day: More than 20% off PR
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
-              values: ["PR", "Near PR", "Good", "Fair", "Off Day"]
+              arguments:
+                values: ["PR", "Near PR", "Good", "Fair", "Off Day"]
 
       # Training Context
       - name: avg_training_pace_30d
         description: Average training pace in 30 days before race
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 3.0
-              max_value: 15.0
+              arguments:
+                min_value: 3.0
+                max_value: 15.0
 
       - name: total_training_distance_30d
         description: Total training distance in 30 days before race (km)
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0.0
-              max_value: 500.0
+              arguments:
+                min_value: 0.0
+                max_value: 500.0
 
       - name: training_runs_30d
         description: Number of training runs in 30 days before race
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 50
+              arguments:
+                min_value: 0
+                max_value: 50
 
       - name: race_vs_training_pace_diff
         description: |
           Race pace minus training pace (min/km).
           Negative = raced faster than training.
           Positive = raced slower than training.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: -5.0
-              max_value: 5.0
+              arguments:
+                min_value: -5.0
+                max_value: 5.0
 
       - name: race_readiness_score
         description: |
@@ -480,11 +542,12 @@ models:
           - Training volume (30 days)
           - Days since last race
           - Training consistency
-        tests:
+        data_tests:
           - not_null
           - dbt_utils.accepted_range:
-              min_value: 1
-              max_value: 10
+              arguments:
+                min_value: 1
+                max_value: 10
 
       - name: pacing_assessment
         description: |
@@ -494,25 +557,27 @@ models:
           - Consistent with training
           - Slower than training
           - No training data
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
-              values:
-                - "Much faster than training"
-                - "Faster than training"
-                - "Consistent with training"
-                - "Slower than training"
-                - "No training data"
+              arguments:
+                values:
+                  - "Much faster than training"
+                  - "Faster than training"
+                  - "Consistent with training"
+                  - "Slower than training"
+                  - "No training data"
 
       # Race Intervals & Recovery
       - name: days_since_last_race
         description: |
           Days since previous race.
           Null for first race.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 0
-              max_value: 365
+              arguments:
+                min_value: 0
+                max_value: 365
 
       - name: recovery_status
         description: |
@@ -521,30 +586,33 @@ models:
           - Quick turnaround: < 7 days
           - Standard recovery: 7-14 days
           - Well rested: > 14 days
-        tests:
+        data_tests:
           - not_null
           - accepted_values:
-              values:
-                - "First race"
-                - "Quick turnaround"
-                - "Standard recovery"
-                - "Well rested"
+              arguments:
+                values:
+                  - "First race"
+                  - "Quick turnaround"
+                  - "Standard recovery"
+                  - "Well rested"
 
       # Performance Trends
       - name: pace_ma_3_races
         description: |
           3-race moving average pace for this distance.
           Helps identify improving/declining trends.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: 3.0
-              max_value: 10.0
+              arguments:
+                min_value: 3.0
+                max_value: 10.0
 
       - name: pace_change_vs_last_race
         description: |
           Pace change vs previous race at this distance (min/km).
           Negative = faster, Positive = slower.
-        tests:
+        data_tests:
           - dbt_utils.accepted_range:
-              min_value: -3.0
-              max_value: 3.0
+              arguments:
+                min_value: -3.0
+                max_value: 3.0

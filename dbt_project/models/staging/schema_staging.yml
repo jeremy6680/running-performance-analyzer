@@ -10,6 +10,10 @@
 # - relationships: Foreign key integrity
 #
 # Run tests: dbt test --select staging
+#
+# Syntax note (dbt 1.9+):
+# - Use `data_tests:` instead of `tests:` at column level
+# - Use `arguments:` to nest values/config inside generic tests
 # =============================================================================
 
 version: 2
@@ -38,21 +42,16 @@ models:
         - mart_training_analysis
         - mart_race_performance
 
-    # Model-level metadata
     meta:
       owner: jeremy
       layer: silver
       domain: fitness_activities
 
-    # Model-level tests
-    tests:
-      # Ensure we have data (at least 1 row)
-      - dbt_utils.expression_is_true:
-          expression: "COUNT(*) > 0"
-          config:
-            severity: error
+    # Model-level tests removed.
+    # dbt_utils.expression_is_true runs per-row (WHERE clause) so COUNT(*)
+    # is invalid there. Row existence is implied by not_null + unique on
+    # activity_id. Re-add if you install dbt-expectations later.
 
-    # Column definitions
     columns:
       # ===== Identifiers =====
       - name: activity_id
@@ -87,17 +86,16 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values:
-                [
-                  "running",
-                  "cycling",
-                  "swimming",
-                  "walking",
-                  "hiking",
-                  "strength_training",
-                  "yoga",
-                  "other",
-                ]
+              arguments:
+                values:
+                  - "running"
+                  - "cycling"
+                  - "swimming"
+                  - "walking"
+                  - "hiking"
+                  - "strength_training"
+                  - "yoga"
+                  - "other"
 
       - name: device_name
         description: Garmin device used to record the activity
@@ -111,7 +109,8 @@ models:
         data_tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: ">= 0"
+              arguments:
+                expression: ">= 0"
               config:
                 severity: error
 
@@ -121,7 +120,8 @@ models:
         data_tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: ">= 5" # Minimum 5 minutes (filtered in model)
+              arguments:
+                expression: ">= 5"  # Minimum 5 minutes (filtered in model)
 
       - name: moving_duration_minutes
         description: Active duration excluding pauses (minutes)
@@ -196,7 +196,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       - name: race_distance_category
         description: >
@@ -204,7 +205,8 @@ models:
           'Marathon', 'Ultra'. NULL for non-race activities.
         data_tests:
           - accepted_values:
-              values: ["5K", "10K", "Half Marathon", "Marathon", "Ultra"]
+              arguments:
+                values: ["5K", "10K", "Half Marathon", "Marathon", "Ultra"]
               config:
                 severity: warn
                 where: "race_distance_category IS NOT NULL"
@@ -216,8 +218,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values:
-                ["elite", "fast", "moderate", "easy", "recovery", "no_data"]
+              arguments:
+                values: ["elite", "fast", "moderate", "easy", "recovery", "no_data"]
 
       - name: hr_zone
         description: >
@@ -226,15 +228,14 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values:
-                [
-                  "zone_1_recovery",
-                  "zone_2_base",
-                  "zone_3_tempo",
-                  "zone_4_threshold",
-                  "zone_5_max",
-                  "no_hr_data",
-                ]
+              arguments:
+                values:
+                  - "zone_1_recovery"
+                  - "zone_2_base"
+                  - "zone_3_tempo"
+                  - "zone_4_threshold"
+                  - "zone_5_max"
+                  - "no_hr_data"
 
       - name: effort_level
         description: >
@@ -242,7 +243,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ["easy", "moderate", "hard", "unknown"]
+              arguments:
+                values: ["easy", "moderate", "hard", "unknown"]
 
       - name: terrain_type
         description: >
@@ -252,7 +254,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ["flat", "rolling", "hilly", "mountainous", "unknown"]
+              arguments:
+                values: ["flat", "rolling", "hilly", "mountainous", "unknown"]
 
       - name: time_of_day
         description: >
@@ -261,14 +264,16 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ["morning", "afternoon", "evening", "night"]
+              arguments:
+                values: ["morning", "afternoon", "evening", "night"]
 
       - name: is_weekend
         description: Boolean flag - TRUE if activity on Saturday or Sunday
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       # ===== Data Quality Flags =====
       - name: has_data_quality_issues
@@ -278,21 +283,24 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       - name: is_very_short
         description: Flag for activities under 5 minutes (likely errors)
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       - name: has_unrealistic_pace
         description: Flag for unrealistic pace (< 3 or > 15 min/km)
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       # ===== Audit Fields =====
       - name: loaded_at
@@ -359,7 +367,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       # ===== Steps & Movement =====
       - name: steps
@@ -367,21 +376,24 @@ models:
         data_tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: ">= 0"
+              arguments:
+                expression: ">= 0"
 
       - name: daily_distance_km
         description: Total distance moved in kilometers (from steps + activities)
         data_tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: ">= 0"
+              arguments:
+                expression: ">= 0"
 
       - name: steps_goal_met
         description: TRUE if 10,000+ steps were recorded
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       # ===== Calories =====
       - name: active_calories
@@ -408,7 +420,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       # ===== HRV =====
       - name: hrv_avg
@@ -426,7 +439,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ["excellent", "good", "moderate", "low", "no_data"]
+              arguments:
+                values: ["excellent", "good", "moderate", "low", "no_data"]
 
       # ===== Sleep (hours) =====
       - name: sleep_hours
@@ -434,7 +448,8 @@ models:
         data_tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: ">= 0"
+              arguments:
+                expression: ">= 0"
 
       - name: deep_sleep_hours
         description: Duration of deep (slow-wave) sleep in hours
@@ -467,14 +482,16 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ["poor", "fair", "good", "excellent", "no_data"]
+              arguments:
+                values: ["poor", "fair", "good", "excellent", "no_data"]
 
       - name: has_missing_sleep
         description: TRUE if sleep data is unavailable for this day
         data_tests:
           - not_null
           - accepted_values:
-              values: [true, false]
+              arguments:
+                values: [true, false]
 
       # ===== Stress =====
       - name: stress_avg
@@ -487,7 +504,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ["low", "moderate", "high", "very_high", "no_data"]
+              arguments:
+                values: ["low", "moderate", "high", "very_high", "no_data"]
 
       # ===== Body Battery =====
       - name: body_battery_charged
@@ -514,7 +532,8 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              values: ["high", "moderate", "low", "depleted", "no_data"]
+              arguments:
+                values: ["high", "moderate", "low", "depleted", "no_data"]
 
       # ===== Respiration =====
       - name: avg_waking_respiration_rate
@@ -532,7 +551,8 @@ models:
         data_tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "BETWEEN 0 AND 100"
+              arguments:
+                expression: "BETWEEN 0 AND 100"
 
       # ===== Audit Fields =====
       - name: loaded_at
@@ -542,6 +562,106 @@ models:
 
       - name: updated_at
         description: Timestamp of last update
+
+  # ---------------------------------------------------------------------------
+  # Model: stg_garmin_calendar_events
+  # ---------------------------------------------------------------------------
+  - name: stg_garmin_calendar_events
+    description: >
+      Cleaned calendar race events from the Garmin Connect calendar.
+      Includes both past and upcoming races the user has registered for.
+      Grain: one row per unique race event.
+
+    meta:
+      owner: jeremy
+      layer: silver
+      domain: race_planning
+
+    columns:
+      - name: event_uuid
+        description: Garmin's stable UUID for the event (primary key)
+        data_tests:
+          - unique
+          - not_null
+
+      - name: title
+        description: Full event name from Garmin Connect
+        data_tests:
+          - not_null
+
+      - name: event_date
+        description: Race date
+        data_tests:
+          - not_null
+
+      - name: event_year
+        description: Year of the race
+
+      - name: event_month
+        description: Month of the race (1-12)
+
+      - name: days_until_race
+        description: Days from today to race date (negative = past)
+
+      - name: is_upcoming
+        description: TRUE if event_date >= today
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true, false]
+
+      - name: race_season
+        description: Season bucket (Spring / Summer / Fall / Winter)
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Spring', 'Summer', 'Fall', 'Winter']
+
+      - name: start_time
+        description: Race start time as HH:MM string (can be NULL)
+
+      - name: timezone
+        description: IANA timezone of the race location
+
+      - name: location
+        description: City/country from Garmin (e.g. 'Cannes, FR')
+
+      - name: distance_m
+        description: Official race distance in metres
+
+      - name: distance_km
+        description: Official race distance in kilometres
+
+      - name: race_distance_category
+        description: Standard distance label (5K / 10K / Half Marathon / Marathon / Ultra)
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['5K', '10K', 'Half Marathon', 'Marathon', 'Ultra']
+              config:
+                severity: warn
+                where: "race_distance_category IS NOT NULL"
+
+      - name: is_race
+        description: Always TRUE
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true]
+
+      - name: subscribed
+        description: TRUE if user subscribed to this event on Garmin Connect
+
+      - name: url
+        description: External URL to race page
+
+      - name: loaded_at
+        description: Timestamp when record was loaded into bronze layer
+        data_tests:
+          - not_null
 
 # =============================================================================
 # Custom Tests (Optional - Advanced)
