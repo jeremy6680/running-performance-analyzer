@@ -112,9 +112,22 @@ cleaned AS (
     -- -------------------------------------------------------------------------
     -- Speed & Pace Metrics
     -- -------------------------------------------------------------------------
-    -- Pace (min/km) is already calculated in bronze layer
-    -- This is the primary metric for runners
-    avg_pace_min_km,
+    -- Pace (min/km) is already calculated in bronze layer.
+    -- However, the Garmin API occasionally returns a corrupted value for
+    -- avg_pace_min_km (observed on 2026-02-08, 2026-02-11, 2026-02-13:
+    -- the field contained the avg_heart_rate value instead of the pace).
+    --
+    -- Sanity rule: a realistic running/walking pace is between 2.0 and 20.0 min/km.
+    -- If avg_pace_min_km falls outside that window, we fall back to computing
+    -- pace directly from duration and distance, which is always reliable.
+    CASE
+      WHEN avg_pace_min_km IS NULL                   THEN NULL
+      WHEN distance_km IS NULL OR distance_km = 0    THEN NULL
+      WHEN avg_pace_min_km >= 2.0
+       AND avg_pace_min_km <= 20.0                   THEN avg_pace_min_km
+      -- Fallback: derive pace from duration and distance
+      ELSE ROUND(duration_minutes / distance_km, 3)
+    END AS avg_pace_min_km,
     
     -- Convert speed from m/s to km/h (more intuitive)
     -- Multiply by 3.6 to convert: (m/s) * (3600s/h) / (1000m/km) = km/h
@@ -400,10 +413,14 @@ enriched AS (
     END AS is_very_short,
     
     -- Flag 3: Unrealistic pace
-    -- Pace < 3 min/km = world-class marathon pace (unlikely for most)
-    -- Pace > 15 min/km = very slow walking pace (might be GPS errors)
+    -- Pace < 2 min/km = world record speed (physically impossible for running)
+    -- Pace > 20 min/km = cut-off threshold used in the cleaning CTE above
+    -- NOTE: After the cleaning CASE in the 'cleaned' CTE, avg_pace_min_km values
+    -- outside [2.0, 20.0] have already been replaced with the computed fallback,
+    -- so this flag will only trigger on genuinely corrupt or NULL computed paces.
     CASE
-      WHEN avg_pace_min_km < 3.0 OR avg_pace_min_km > 15.0 THEN TRUE
+      WHEN avg_pace_min_km IS NULL THEN FALSE
+      WHEN avg_pace_min_km < 2.0 OR avg_pace_min_km > 20.0 THEN TRUE
       ELSE FALSE
     END AS has_unrealistic_pace
 

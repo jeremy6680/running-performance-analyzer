@@ -342,10 +342,14 @@ if not df_calendar.empty:
                     + "</div>"
                 ) if goal_time else ""
 
+                # Build the link as a bare <a> tag only — the wrapping <div> is
+                # added conditionally in the f-string below. This mirrors the
+                # pattern used in app.py and avoids Streamlit 1.45 markdown
+                # stripping the HTML when a full block-level <div> is injected
+                # as a Python variable rather than as literal template text.
                 link_html = (
-                    f'<div style="text-align:center; margin-top:8px;">'
-                    f'<a href="{race_url}" target="_blank" style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
-                    f"</div>"
+                    f'<a href="{race_url}" target="_blank" '
+                    f'style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
                 ) if race_url else ""
 
                 st.markdown(f"""
@@ -366,7 +370,7 @@ if not df_calendar.empty:
                     <div style="font-size:0.8rem; color:#6C757D; text-align:center;">📅 {race_date}</div>
                     {f'<div style="font-size:0.78rem; color:#6C757D; text-align:center; margin-top:2px;">📍 {location}</div>' if location else ''}
                     {goal_block}
-                    {link_html}
+                    {f'<div style="text-align:center; margin-top:8px;">{link_html}</div>' if link_html else ''}
                 </div>
                 """, unsafe_allow_html=True)
 

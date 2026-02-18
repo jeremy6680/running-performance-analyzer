@@ -242,8 +242,12 @@ def load_recent_activities(limit: int = 10) -> pd.DataFrame:
             activity_type,
             distance_km,
             duration_minutes,
-            -- Calculate true pace in min/km from duration and distance
-            -- avg_pace_min_km from Garmin API is in seconds/mile (raw value)
+            -- Compute pace directly from duration and distance.
+            -- This is the safest approach: the raw avg_pace_min_km field from
+            -- the Garmin API has been observed returning corrupted values (e.g.
+            -- the avg_heart_rate value) on some activities. The dbt staging model
+            -- already applies a sanity filter on avg_pace_min_km, but we also
+            -- compute it from first principles here as an extra safeguard.
             CASE 
                 WHEN distance_km > 0 
                 THEN ROUND(duration_minutes / distance_km, 3)

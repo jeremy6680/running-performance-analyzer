@@ -59,20 +59,26 @@ def _load_data() -> tuple:
 # Sidebar filters
 # ---------------------------------------------------------------------------
 
-def render_sidebar_filters(df: pd.DataFrame) -> int:
+def render_sidebar_filters(df: pd.DataFrame) -> tuple:
     """
-    Render a slider in the sidebar to select how many weeks to display.
+    Render sidebar controls:
+        - Weeks slider  (for the trend charts)
+        - Activity type filter (for the Recent Activities table)
 
     Args:
         df: Training DataFrame (used to determine max available weeks).
 
     Returns:
-        int: Number of weeks selected by the user.
+        tuple: (weeks: int, selected_types: list[str])
+            weeks          → number of weeks to show in charts
+            selected_types → list of raw activity_type values to display
+                             (empty list = all types)
     """
     with st.sidebar:
         st.markdown("## 📊 Dashboard")
         st.markdown("---")
 
+        # ── Weeks slider ──────────────────────────────────────────────────────
         max_weeks = min(len(df), 52) if not df.empty else 16
 
         weeks = st.slider(
@@ -85,9 +91,42 @@ def render_sidebar_filters(df: pd.DataFrame) -> int:
         )
 
         st.markdown("---")
+
+        # ── Activity type filter for Recent Activities table ───────────────────
+        # We derive the options from ACTIVITY_TYPES so labels match what
+        # is displayed in the table, and so new types added to constants.py
+        # are automatically available here without code changes.
+        #
+        # The multiselect stores the raw activity_type key (e.g. "running"),
+        # not the display label, so we can filter the DataFrame directly.
+        #
+        # Default: "running" only — the most common use-case for a runner.
+        st.markdown("#### 🏃 Recent Activities")
+
+        # Build options as {display_label: raw_key} for the widget
+        type_options = {
+            info["icon"] + " " + info["label"]: key
+            for key, info in ACTIVITY_TYPES.items()
+        }
+
+        # Default selection: running only
+        default_display = [k for k, v in type_options.items() if v == "running"]
+
+        selected_labels = st.multiselect(
+            "Filter by type",
+            options=list(type_options.keys()),
+            default=default_display,
+            help="Select which activity types to show in the Recent Activities table. "
+                 "Leave empty to show all types.",
+        )
+
+        # Convert selected display labels back to raw keys
+        selected_types = [type_options[label] for label in selected_labels]
+
+        st.markdown("---")
         st.caption("💡 Use the sidebar on each page to filter data")
 
-    return weeks
+    return weeks, selected_types
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +169,7 @@ def render_charts(df: pd.DataFrame, weeks: int) -> None:
         st.plotly_chart(fig_load, use_container_width=True)
 
 
-def render_recent_activities(df: pd.DataFrame) -> None:
+def render_recent_activities(df: pd.DataFrame, selected_types: list | None = None) -> None:
     """
     Render a formatted table of recent activities with weather context.
 
@@ -140,12 +179,32 @@ def render_recent_activities(df: pd.DataFrame) -> None:
 
     Args:
         df: Recent activities DataFrame from load_recent_activities().
+        selected_types: List of raw activity_type values to display
+                        (e.g. ["running", "trail_running"]).
+                        If None or empty list, all types are shown.
     """
     st.markdown("### Recent Activities")
 
     if df.empty:
         st.info("No activities found. Run the ingestion pipeline first.")
         return
+
+    # ── Apply event type filter ─────────────────────────────────────────────────────────
+    # selected_types is a list of raw activity_type strings (e.g. ["running"]).
+    # An empty list means "show all" — no filter applied.
+    # We normalise both sides to lowercase to handle any casing inconsistencies
+    # between what Garmin returns and what is stored in the silver layer.
+    if selected_types:  # non-empty list = filter is active
+        df = df[df["activity_type"].str.lower().isin(
+            [t.lower() for t in selected_types]
+        )]
+
+        if df.empty:
+            st.info(
+                "No activities match the selected type filter. "
+                "Try adding more types in the sidebar."
+            )
+            return
 
     # ── Load weather data for enrichment ─────────────────────────────────────
     # Weather is stored in the bronze layer (raw_garmin_activities) and loaded
@@ -262,8 +321,8 @@ def main() -> None:
         st.stop()
         return
 
-    # Sidebar filters
-    weeks = render_sidebar_filters(df_training)
+    # Sidebar filters — returns both weeks and activity type selection
+    weeks, selected_types = render_sidebar_filters(df_training)
 
     # Page title
     st.markdown("# 📊 Dashboard")
@@ -275,7 +334,7 @@ def main() -> None:
     st.markdown("---")
     render_charts(df_training, weeks=weeks)
     st.markdown("---")
-    render_recent_activities(df_activities)
+    render_recent_activities(df_activities, selected_types=selected_types)
 
 
 main()
