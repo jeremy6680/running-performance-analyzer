@@ -153,6 +153,82 @@ def load_ai_features() -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def load_weather_data() -> pd.DataFrame:
+    """
+    Load weather data joined to activities from the bronze layer.
+
+    Weather columns are captured in raw_garmin_activities during ingestion
+    but are not yet propagated to stg_garmin_activities (silver layer).
+    We query the bronze table directly and join on activity_id.
+
+    Temperature note: The Garmin API returns inconsistent units — some values
+    are in Celsius (e.g. 7.0°C), others appear to be Fahrenheit stored in
+    the _c column (e.g. 57.0 → 13.9°C). We auto-detect and normalise:
+    - If weather_temp_c > 40: assume Fahrenheit, convert to Celsius
+    - Otherwise: treat as Celsius already
+
+    Returns:
+        pd.DataFrame: One row per activity that has weather data.
+    """
+    return _query("""
+        SELECT
+            r.activity_id,
+            r.activity_name,
+            CAST(r.activity_date AS DATE) AS activity_date,
+            r.activity_type,
+            r.distance_km,
+            r.duration_minutes,
+            r.avg_pace_min_km,
+            r.avg_heart_rate,
+            -- Normalise temperature: auto-detect Fahrenheit (> 40) and convert
+            CASE
+                WHEN r.weather_temp_c > 40
+                THEN ROUND((r.weather_temp_c - 32) / 1.8, 1)
+                ELSE ROUND(r.weather_temp_c, 1)
+            END AS temp_c,
+            r.weather_temp_c     AS temp_raw,   -- keep original for debug
+            r.weather_humidity_pct    AS humidity_pct,
+            -- Wind speed: convert m/s to km/h for readability
+            ROUND(r.weather_wind_speed_ms * 3.6, 1) AS wind_kmh,
+            r.weather_condition,
+            r.weather_precipitation_mm AS precipitation_mm
+        FROM raw_garmin_activities r
+        WHERE r.weather_temp_c IS NOT NULL
+          AND r.distance_km > 0
+          AND r.duration_minutes >= 5
+        ORDER BY r.activity_date DESC
+    """)
+
+
+def load_calendar_events() -> pd.DataFrame:
+    """
+    Load upcoming race calendar events from the silver layer.
+
+    Returns:
+        pd.DataFrame: Calendar events sorted by date ascending (soonest first).
+                      Empty DataFrame if the table is empty or not accessible.
+    """
+    try:
+        return _query("""
+            SELECT
+                event_uuid,
+                title,
+                event_date,
+                location,
+                distance_km,
+                race_distance_category,
+                is_upcoming,
+                days_until_race,
+                race_season,
+                start_time,
+                url
+            FROM main_silver.stg_garmin_calendar_events
+            ORDER BY event_date ASC
+        """)
+    except Exception:
+        return pd.DataFrame()
+
+
 def load_recent_activities(limit: int = 10) -> pd.DataFrame:
     """
     Load the most recent individual activities from the silver layer.

@@ -457,7 +457,12 @@ with col_rhr:
         st.info("No resting heart rate data available.")
 
 with col_hrv:
-    df_hrv = df.dropna(subset=["hrv_numeric"]) if "hrv_numeric" in df.columns else pd.DataFrame()
+    # Check for hrv_numeric column — it is aliased from hrv_avg in the mart.
+    # The value is NULL when the Garmin watch did not record overnight HRV
+    # (requires HRV Status feature to be enabled on the device).
+    hrv_col_exists = "hrv_numeric" in df.columns
+    df_hrv = df.dropna(subset=["hrv_numeric"]) if hrv_col_exists else pd.DataFrame()
+
     if not df_hrv.empty:
         fig_hrv = go.Figure()
         fig_hrv.add_trace(go.Scatter(
@@ -487,7 +492,19 @@ with col_hrv:
             "Sustained low HRV after hard training signals accumulated fatigue."
         )
     else:
-        st.info("No HRV data available for this period.")
+        # Explain why HRV data might be missing — the most common reason is that
+        # the Garmin device doesn't support HRV Status, or the feature is disabled.
+        # Garmin's HRV Status requires wearing the watch during sleep and is only
+        # available on mid-range and higher devices (Forerunner 255+, Fenix, etc.).
+        st.info(
+            "**No HRV data available.**\n\n"
+            "This usually means one of the following:\n"
+            "- Your Garmin device doesn't support **HRV Status** "
+            "(requires Forerunner 255+ or Fenix/Epix)\n"
+            "- The feature is **disabled** in Garmin Connect settings\n"
+            "- You haven't been **wearing the watch during sleep** consistently\n\n"
+            "HRV is measured overnight. Once enabled and synced, it will appear here."
+        )
 
 st.divider()
 

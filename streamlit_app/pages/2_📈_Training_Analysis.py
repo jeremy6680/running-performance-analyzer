@@ -868,6 +868,195 @@ else:
 st.divider()
 
 # =============================================================================
+# SECTION 5b – WEATHER ANALYSIS
+# =============================================================================
+# Weather data is stored in the bronze table (raw_garmin_activities).
+# We load it separately via load_weather_data() which also normalises
+# the temperature (some values from the Garmin API come in Fahrenheit).
+
+if "weather_data" not in st.session_state:
+    from utils.database import load_weather_data
+    raw_weather = load_weather_data()
+    if not raw_weather.empty:
+        raw_weather["activity_date"] = pd.to_datetime(raw_weather["activity_date"])
+    st.session_state["weather_data"] = raw_weather
+
+df_weather_all = st.session_state["weather_data"]
+
+# Apply the same date filter as the rest of the page
+if not df_weather_all.empty:
+    df_weather = df_weather_all[
+        (df_weather_all["activity_date"] >= date_start) &
+        (df_weather_all["activity_date"] <= date_end) &
+        (df_weather_all["activity_type"] == "running")
+    ].copy()
+else:
+    df_weather = pd.DataFrame()
+
+if not df_weather.empty:
+    st.divider()
+    st.markdown('<p class="section-header">☀️ Weather & Performance</p>', unsafe_allow_html=True)
+
+    # ---- Summary metrics row ------------------------------------------------
+    avg_temp   = df_weather["temp_c"].mean()
+    avg_humid  = df_weather["humidity_pct"].mean()
+    avg_wind   = df_weather["wind_kmh"].mean()
+    n_weather  = len(df_weather)
+
+    wc1, wc2, wc3, wc4 = st.columns(4)
+    with wc1:
+        st.metric("🌡️ Avg Temperature", f"{avg_temp:.1f}°C")
+    with wc2:
+        st.metric("💧 Avg Humidity", f"{avg_humid:.0f}%")
+    with wc3:
+        st.metric("💨 Avg Wind", f"{avg_wind:.1f} km/h")
+    with wc4:
+        st.metric("📦 Runs with data", n_weather)
+
+    st.markdown("")
+
+    # ---- Temperature vs Pace scatter ----------------------------------------
+    wcol_left, wcol_right = st.columns(2)
+
+    with wcol_left:
+        st.markdown("**🌡️ Temperature vs Pace**")
+        st.caption("Does heat slow you down? Ideally you want consistent pace across temperatures.")
+
+        fig_temp_pace = px.scatter(
+            df_weather.dropna(subset=["temp_c", "avg_pace_min_km"]),
+            x="temp_c",
+            y="avg_pace_min_km",
+            color="humidity_pct",
+            size="distance_km",
+            size_max=18,
+            color_continuous_scale="Blues",
+            hover_name="activity_name",
+            hover_data={
+                "activity_date": "|%b %d, %Y",
+                "temp_c":         ":.1f",
+                "avg_pace_min_km": ":.2f",
+                "humidity_pct":    ":.0f",
+                "wind_kmh":        ":.1f",
+                "distance_km":     False,
+            },
+            labels={
+                "temp_c":          "Temperature (°C)",
+                "avg_pace_min_km": "Pace (min/km)",
+                "humidity_pct":    "Humidity (%)",
+            },
+        )
+
+        # Add trend line manually using a simple linear regression
+        # This avoids needing scipy — we use numpy which is always available
+        weather_clean = df_weather.dropna(subset=["temp_c", "avg_pace_min_km"])
+        if len(weather_clean) >= 3:
+            import numpy as np
+            z = np.polyfit(weather_clean["temp_c"], weather_clean["avg_pace_min_km"], 1)
+            p = np.poly1d(z)
+            x_range = pd.Series(
+                sorted([weather_clean["temp_c"].min(), weather_clean["temp_c"].max()])
+            )
+            fig_temp_pace.add_scatter(
+                x=x_range,
+                y=p(x_range),
+                mode="lines",
+                line=dict(color=COLORS["danger"], dash="dot", width=2),
+                name="Trend",
+                showlegend=True,
+            )
+
+        fig_temp_pace.update_layout(
+            height=320,
+            margin=dict(t=20, b=10, l=10, r=10),
+            plot_bgcolor=COLORS["card_bg"],
+            paper_bgcolor=COLORS["card_bg"],
+            yaxis=dict(autorange="reversed", title="Pace (min/km) — lower = faster", gridcolor="#E8ECF0"),
+            xaxis=dict(title="Temperature (°C)", gridcolor="#E8ECF0"),
+            coloraxis_colorbar=dict(title="Humidity %"),
+        )
+        st.plotly_chart(fig_temp_pace, use_container_width=True)
+
+    with wcol_right:
+        st.markdown("**💨 Wind vs Pace**")
+        st.caption("High wind typically increases effort. Look for upward trend with wind.")
+
+        fig_wind_pace = px.scatter(
+            df_weather.dropna(subset=["wind_kmh", "avg_pace_min_km"]),
+            x="wind_kmh",
+            y="avg_pace_min_km",
+            color="temp_c",
+            size="distance_km",
+            size_max=18,
+            color_continuous_scale="RdYlBu_r",
+            hover_name="activity_name",
+            hover_data={
+                "activity_date": "|%b %d, %Y",
+                "wind_kmh":       ":.1f",
+                "avg_pace_min_km": ":.2f",
+                "temp_c":         ":.1f",
+                "humidity_pct":   ":.0f",
+                "distance_km":    False,
+            },
+            labels={
+                "wind_kmh":        "Wind Speed (km/h)",
+                "avg_pace_min_km": "Pace (min/km)",
+                "temp_c":          "Temp (°C)",
+            },
+        )
+
+        fig_wind_pace.update_layout(
+            height=320,
+            margin=dict(t=20, b=10, l=10, r=10),
+            plot_bgcolor=COLORS["card_bg"],
+            paper_bgcolor=COLORS["card_bg"],
+            yaxis=dict(autorange="reversed", title="Pace (min/km) — lower = faster", gridcolor="#E8ECF0"),
+            xaxis=dict(title="Wind Speed (km/h)", gridcolor="#E8ECF0"),
+            coloraxis_colorbar=dict(title="Temp °C"),
+        )
+        st.plotly_chart(fig_wind_pace, use_container_width=True)
+
+    # ---- Temperature distribution over time ---------------------------------
+    st.markdown("**📅 Temperature Over Time**")
+
+    fig_temp_time = px.scatter(
+        df_weather.sort_values("activity_date"),
+        x="activity_date",
+        y="temp_c",
+        color="avg_pace_min_km",
+        size="distance_km",
+        size_max=15,
+        color_continuous_scale="RdYlBu_r",
+        hover_name="activity_name",
+        hover_data={
+            "activity_date": "|%b %d, %Y",
+            "temp_c":         ":.1f",
+            "humidity_pct":   ":.0f",
+            "wind_kmh":       ":.1f",
+            "avg_pace_min_km": ":.2f",
+            "distance_km":    False,
+        },
+        labels={
+            "activity_date":   "Date",
+            "temp_c":          "Temperature (°C)",
+            "avg_pace_min_km": "Pace (min/km)",
+        },
+    )
+    fig_temp_time.update_layout(
+        height=260,
+        margin=dict(t=20, b=10, l=10, r=10),
+        plot_bgcolor=COLORS["card_bg"],
+        paper_bgcolor=COLORS["card_bg"],
+        xaxis=dict(showgrid=False, tickformat="%b %Y"),
+        yaxis=dict(gridcolor="#E8ECF0", title="Temp (°C)"),
+        coloraxis_colorbar=dict(title="Pace min/km"),
+    )
+    st.plotly_chart(fig_temp_time, use_container_width=True)
+    st.caption(
+        "💡 Dot colour = pace (red = fast, blue = slow). Dot size = distance. "
+        "Temperature is auto-detected and converted from Fahrenheit if needed."
+    )
+
+# =============================================================================
 # SECTION 6 – RAW DATA TABLE (collapsible)
 # =============================================================================
 

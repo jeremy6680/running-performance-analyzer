@@ -20,7 +20,9 @@ Real schema columns (verified 2026-02-17):
     race_vs_training_pace_diff, race_readiness_score,
     days_since_last_race,
     pace_ma_3_races, pace_change_vs_last_race,
-    performance_rating, pacing_assessment, recovery_status
+    performance_rating, pacing_assessment, recovery_status,
+    goal_race_name, goal_time_formatted_target, goal_time_seconds,
+    seconds_vs_goal, goal_achievement, goal_notes
 
 Technical notes:
 - Uses st.session_state instead of @st.cache_data (DuckDB 1.4.4 compatibility)
@@ -160,10 +162,55 @@ def load_races() -> pd.DataFrame:
         conn.close()
 
 
+def load_calendar() -> pd.DataFrame:
+    """
+    Load upcoming calendar race events from the silver layer.
+    Caches result in st.session_state for the session duration.
+
+    Returns:
+        pd.DataFrame: Calendar events (empty DataFrame on error).
+    """
+    if "calendar_events" in st.session_state:
+        return st.session_state["calendar_events"]
+
+    conn = get_db_connection()
+    if conn is None:
+        return pd.DataFrame()
+
+    try:
+        df = conn.execute("""
+            SELECT
+                event_uuid,
+                title,
+                event_date,
+                location,
+                distance_km,
+                race_distance_category,
+                is_upcoming,
+                days_until_race,
+                race_season,
+                start_time,
+                url
+            FROM main_silver.stg_garmin_calendar_events
+            ORDER BY event_date ASC
+        """).df()
+
+        df["event_date"] = pd.to_datetime(df["event_date"])
+        st.session_state["calendar_events"] = df
+        return df
+
+    except Exception as e:
+        # Table may not exist yet — silently return empty
+        return pd.DataFrame()
+    finally:
+        conn.close()
+
+
 def clear_cache():
     """Clear cached race data to force a refresh."""
-    if "race_performance" in st.session_state:
-        del st.session_state["race_performance"]
+    for key in ["race_performance", "calendar_events"]:
+        if key in st.session_state:
+            del st.session_state[key]
 
 # =============================================================================
 # SIDEBAR
@@ -205,6 +252,125 @@ with st.sidebar:
 
 st.title("🏃 Race Performance")
 st.caption("Personal records, race history, and performance trends.")
+
+# =============================================================================
+# UPCOMING RACES (from Garmin calendar)
+# =============================================================================
+# Displayed at the top of the page so the user sees what’s coming up next.
+# Goal times (from race_goals seed) are joined to calendar events by
+# matching race_distance_category so the runner can see target vs. plan.
+
+df_calendar = load_calendar()
+
+# Load race_goals seed to show target times alongside calendar events
+# We load them from DuckDB directly (seeded by dbt) rather than reading the CSV
+_goals_conn = get_db_connection()
+_goals_df   = pd.DataFrame()
+if _goals_conn is not None:
+    try:
+        _goals_df = _goals_conn.execute("""
+            SELECT race_date, race_name, race_distance_category,
+                   goal_time_formatted, notes
+            FROM main_seeds.race_goals
+        """).df()
+        _goals_df["race_date"] = pd.to_datetime(_goals_df["race_date"])
+    except Exception:
+        pass
+    finally:
+        _goals_conn.close()
+
+if not df_calendar.empty:
+    st.markdown('<p class="section-header">🗓️ Upcoming Races</p>', unsafe_allow_html=True)
+
+    df_upcoming = df_calendar[df_calendar["is_upcoming"].astype(bool)].copy()
+
+    if df_upcoming.empty:
+        st.info("📋 No upcoming races in your Garmin calendar. All scheduled events are in the past.")
+    else:
+        df_upcoming = df_upcoming.sort_values("event_date")
+
+        # Join goal times to calendar events (match on date first, then distance category)
+        if not _goals_df.empty:
+            df_upcoming = df_upcoming.merge(
+                _goals_df.rename(columns={
+                    "race_date":              "goal_match_date",
+                    "race_name":              "goal_name",
+                    "goal_time_formatted":    "goal_time",
+                    "notes":                  "goal_notes",
+                    "race_distance_category": "goal_dist_cat",
+                }),
+                left_on="event_date",
+                right_on="goal_match_date",
+                how="left",
+            )
+        else:
+            df_upcoming["goal_time"]  = None
+            df_upcoming["goal_notes"] = None
+
+        cols = st.columns(min(len(df_upcoming), 4), gap="medium")
+
+        for i, (_, row) in enumerate(df_upcoming.iterrows()):
+            with cols[i % min(len(df_upcoming), 4)]:
+                days_left = int(row.get("days_until_race", 0))
+                race_date = row["event_date"].strftime("%b %d, %Y")
+                title     = row.get("title") or "Race"
+                dist_cat  = row.get("race_distance_category") or ""
+                location  = row.get("location") or ""
+                race_url  = row.get("url") or ""
+                goal_time = row.get("goal_time") or ""
+                goal_note = row.get("goal_notes") or ""
+
+                if days_left <= 14:
+                    border_color = "#EF233C"
+                elif days_left <= 30:
+                    border_color = "#F77F00"
+                else:
+                    border_color = "#0077B6"
+
+                dist_icons = {
+                    "5K": "5️⃣", "10K": "🔟",
+                    "Half Marathon": "🏅", "Marathon": "🏆", "Ultra": "💪",
+                }
+                dist_icon = dist_icons.get(dist_cat, "🏁")
+
+                countdown_label = "TODAY" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}"
+
+                goal_block = (
+                    f'<div style="margin-top:8px; background:#EBF5FB; border-radius:6px; padding:6px 8px;">'
+                    f'<span style="font-size:0.75rem; color:#0077B6; font-weight:700;">🎯 Goal: {goal_time}</span>'
+                    + (f'<br><span style="font-size:0.72rem; color:#5F6368;">{goal_note}</span>' if goal_note else "")
+                    + "</div>"
+                ) if goal_time else ""
+
+                link_html = (
+                    f'<div style="text-align:center; margin-top:8px;">'
+                    f'<a href="{race_url}" target="_blank" style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
+                    f"</div>"
+                ) if race_url else ""
+
+                st.markdown(f"""
+                <div style="background:#FFFFFF; border:1px solid #E0EAF5;
+                            border-radius:12px; padding:16px 14px;
+                            border-top:4px solid {border_color};
+                            box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                    <div style="text-align:center; margin-bottom:10px;">
+                        <span style="background:{border_color}; color:white;
+                                    font-size:0.8rem; font-weight:700;
+                                    padding:3px 10px; border-radius:20px;">
+                            {countdown_label}
+                        </span>
+                    </div>
+                    <div style="font-size:1.4rem; text-align:center;">{dist_icon}</div>
+                    <div style="font-size:1rem; font-weight:700; color:#1A1A2E;
+                                text-align:center; margin:6px 0 4px;">{title}</div>
+                    <div style="font-size:0.8rem; color:#6C757D; text-align:center;">📅 {race_date}</div>
+                    {f'<div style="font-size:0.78rem; color:#6C757D; text-align:center; margin-top:2px;">📍 {location}</div>' if location else ''}
+                    {goal_block}
+                    {link_html}
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.divider()
 
 # =============================================================================
 # LOAD DATA
@@ -472,6 +638,101 @@ else:
     st.info("No PR data available for the selected filters.")
 
 st.divider()
+
+# =============================================================================
+# SECTION 4b — GOAL ACHIEVEMENT
+# =============================================================================
+# Show planned vs actual times for races that have a goal set in race_goals.csv
+# Columns: goal_race_name, goal_time_formatted_target, seconds_vs_goal, goal_achievement
+
+goal_races = df[df["goal_race_name"].notna()].sort_values("race_date") if "goal_race_name" in df.columns else pd.DataFrame()
+
+if not goal_races.empty:
+    st.markdown('<p class="section-header">🎯 Goal Achievement</p>', unsafe_allow_html=True)
+
+    # Summary row: how many goals achieved?
+    total_goals    = len(goal_races)
+    achieved       = (goal_races["goal_achievement"] == "Goal achieved ✅").sum()
+    just_missed    = (goal_races["goal_achievement"] == "Just missed (<2%)").sum()
+    missed         = total_goals - achieved - just_missed
+
+    col_g1, col_g2, col_g3 = st.columns(3)
+    with col_g1:
+        st.metric("🎯 Goals set", total_goals)
+    with col_g2:
+        st.metric("✅ Achieved", achieved)
+    with col_g3:
+        st.metric("❌ Missed", missed)
+
+    st.markdown("")
+
+    # One card per goal race
+    goal_cols = st.columns(min(len(goal_races), 3))
+
+    for i, (_, row) in enumerate(goal_races.iterrows()):
+        with goal_cols[i % len(goal_cols)]:
+            race_date_str = pd.to_datetime(row["race_date"]).strftime("%b %d, %Y")
+            actual        = row.get("finish_time_formatted", "—")
+            target        = row.get("goal_time_formatted_target", "—")
+            achievement   = row.get("goal_achievement", "No goal set")
+            dist_cat      = row.get("race_distance_category", "")
+            notes         = row.get("goal_notes", "")
+
+            # Seconds vs goal — format as +/- string
+            secs = row.get("seconds_vs_goal")
+            if pd.notna(secs):
+                sign    = "+" if secs > 0 else ""
+                abs_min = int(abs(secs) // 60)
+                abs_sec = int(abs(secs) % 60)
+                delta_str = f"{sign}{abs_min}:{abs_sec:02d}"
+                delta_color = "#EF233C" if secs > 0 else "#2DC653"
+            else:
+                delta_str   = "—"
+                delta_color = "#6C757D"
+
+            # Card border color by achievement
+            if "achieved" in achievement:
+                border_color = "#2DC653"
+                icon = "✅"
+            elif "Just missed" in achievement:
+                border_color = "#FFD60A"
+                icon = "🔶"
+            elif "No goal" in achievement:
+                border_color = "#6C757D"
+                icon = "📋"
+            else:
+                border_color = "#EF233C"
+                icon = "❌"
+
+            st.markdown(f"""
+            <div style="background:#FFF; border:1px solid #E8ECF0; border-radius:10px;
+                        padding:1rem 1.2rem; border-left:5px solid {border_color};">
+                <div style="font-size:1rem; font-weight:700; color:#1A1A2E;">
+                    {icon} {row.get('goal_race_name', dist_cat)}
+                </div>
+                <div style="font-size:0.8rem; color:#6C757D; margin-top:2px;">
+                    {dist_cat} · {race_date_str}
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:0.8rem;">
+                    <div>
+                        <div style="font-size:0.75rem; color:#6C757D; text-transform:uppercase;">Target</div>
+                        <div style="font-size:1.2rem; font-weight:700; color:#1A1A2E;">{target}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:0.75rem; color:#6C757D; text-transform:uppercase;">Actual</div>
+                        <div style="font-size:1.2rem; font-weight:700; color:#1A1A2E;">{actual}</div>
+                    </div>
+                    <div>
+                        <div style="font-size:0.75rem; color:#6C757D; text-transform:uppercase;">Delta</div>
+                        <div style="font-size:1.2rem; font-weight:700; color:{delta_color};">{delta_str}</div>
+                    </div>
+                </div>
+                {f'<div style="font-size:0.78rem; color:#6C757D; margin-top:0.6rem; font-style:italic;">{notes}</div>' if notes else ''}
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("")
+
+    st.divider()
 
 # =============================================================================
 # SECTION 5 — TRAINING CONTEXT (race readiness)

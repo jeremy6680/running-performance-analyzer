@@ -24,7 +24,7 @@ import streamlit as st
 
 from components.metrics import render_all_time_stats, render_recovery_status
 from utils.constants import APP_ICON, APP_SUBTITLE, APP_TITLE
-from utils.database import get_date_range, load_health_data, load_race_data, load_training_data
+from utils.database import get_date_range, load_calendar_events, load_health_data, load_race_data, load_training_data
 
 
 # =============================================================================
@@ -179,12 +179,13 @@ def _load_data_cached() -> tuple:
     st.session_state stores objects directly in memory — no serialisation.
 
     Returns:
-        tuple: (df_training, df_health, df_race, min_date, max_date)
+        tuple: (df_training, df_health, df_race, df_calendar, min_date, max_date)
     """
     if "data_loaded" not in st.session_state:
         st.session_state.df_training = load_training_data()
         st.session_state.df_health   = load_health_data()
         st.session_state.df_race     = load_race_data()
+        st.session_state.df_calendar = load_calendar_events()
         st.session_state.min_date, st.session_state.max_date = get_date_range()
         st.session_state.data_loaded = True
 
@@ -192,6 +193,7 @@ def _load_data_cached() -> tuple:
         st.session_state.df_training,
         st.session_state.df_health,
         st.session_state.df_race,
+        st.session_state.df_calendar,
         st.session_state.min_date,
         st.session_state.max_date,
     )
@@ -200,7 +202,7 @@ def _load_data_cached() -> tuple:
 def _clear_cache() -> None:
     """Force a full data refresh on next load."""
     for key in ["data_loaded", "df_training", "df_health", "df_race",
-                "min_date", "max_date"]:
+                "df_calendar", "min_date", "max_date"]:
         st.session_state.pop(key, None)
 
 
@@ -333,6 +335,112 @@ def render_quick_nav() -> None:
 
 
 # =============================================================================
+# UPCOMING RACES
+# =============================================================================
+
+def _render_upcoming_races(df_calendar: pd.DataFrame) -> None:
+    """
+    Render upcoming race countdown cards from the Garmin calendar.
+
+    Shows each future race as a card with:
+    - Days until race (countdown badge)
+    - Race name, distance category, location
+    - Direct link to the race page (if available)
+
+    Only displays races where is_upcoming = True.
+    Shows a maximum of 4 upcoming races to keep the home page concise.
+
+    Args:
+        df_calendar: DataFrame from load_calendar_events(), may be empty.
+    """
+    st.markdown('<p class="section-header">🗓️ Upcoming Races</p>', unsafe_allow_html=True)
+
+    # Guard: no calendar data at all
+    if df_calendar is None or df_calendar.empty:
+        st.info(
+            "📋 No upcoming races found in your Garmin calendar. "
+            "Register for a race in the Garmin Connect app and sync again."
+        )
+        return
+
+    # Filter to upcoming events only (is_upcoming may be bool or int)
+    df_upcoming = df_calendar[
+        df_calendar["is_upcoming"].astype(bool) == True
+    ].copy()
+
+    if df_upcoming.empty:
+        st.info(
+            "📋 No upcoming races. All events in your calendar are in the past. "
+            "Check the Race Performance page to review your history."
+        )
+        return
+
+    # Ensure date column is a proper datetime for formatting
+    df_upcoming["event_date"] = pd.to_datetime(df_upcoming["event_date"])
+
+    # Sort ascending (soonest first) and cap at 4 cards
+    df_upcoming = df_upcoming.sort_values("event_date").head(4)
+
+    # Render one card per upcoming race
+    cols = st.columns(len(df_upcoming), gap="medium")
+
+    for col, (_, row) in zip(cols, df_upcoming.iterrows()):
+        with col:
+            days_left   = int(row.get("days_until_race", 0))
+            race_date   = row["event_date"].strftime("%b %d, %Y")
+            title       = row.get("title") or "Race"
+            dist_cat    = row.get("race_distance_category") or ""
+            location    = row.get("location") or ""
+            race_url    = row.get("url") or ""
+
+            # Countdown badge color: red < 14d, orange < 30d, blue otherwise
+            if days_left <= 14:
+                badge_color = "#EF233C"
+            elif days_left <= 30:
+                badge_color = "#F77F00"
+            else:
+                badge_color = "#0077B6"
+
+            # Distance emoji mapping
+            dist_icons = {
+                "5K":           "5️⃣",
+                "10K":          "🔟",
+                "Half Marathon": "🏅",
+                "Marathon":     "🏆",
+                "Ultra":        "💪",
+            }
+            dist_icon = dist_icons.get(dist_cat, "🏁")
+
+            # Build the optional link line
+            link_html = (
+                f'<a href="{race_url}" target="_blank" '
+                f'style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
+                if race_url else ""
+            )
+
+            st.markdown(f"""
+            <div style="background:#FFFFFF; border:1px solid #E0EAF5;
+                        border-radius:12px; padding:16px 14px;
+                        border-top:4px solid {badge_color};
+                        box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                <div style="text-align:center; margin-bottom:10px;">
+                    <span style="background:{badge_color}; color:white;
+                                font-size:0.8rem; font-weight:700;
+                                padding:3px 10px; border-radius:20px;">
+                        {'TODAY' if days_left == 0 else f'In {days_left} day{"s" if days_left != 1 else ""}'}
+                    </span>
+                </div>
+                <div style="font-size:1.4rem; text-align:center;">{dist_icon}</div>
+                <div style="font-size:0.95rem; font-weight:700; color:#1A1A2E;
+                            text-align:center; margin:6px 0 4px;">{title}</div>
+                <div style="font-size:0.8rem; color:#6C757D; text-align:center;">📅 {race_date}</div>
+                {f'<div style="font-size:0.78rem; color:#6C757D; text-align:center; margin-top:2px;">📍 {location}</div>' if location else ''}
+                {f'<div style="text-align:center; margin-top:8px;">{link_html}</div>' if link_html else ''}
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -352,7 +460,7 @@ def main() -> None:
 
     # Load data — show friendly error if DB isn't ready yet
     try:
-        df_training, df_health, df_race, min_date, max_date = _load_data_cached()
+        df_training, df_health, df_race, df_calendar, min_date, max_date = _load_data_cached()
     except FileNotFoundError as e:
         st.error(
             "⚠️ **Database not found.**\n\n"
@@ -377,6 +485,11 @@ def main() -> None:
     # ── Recovery status ───────────────────────────────────────────────────────
     st.markdown('<p class="section-header">⚡ Today\'s Recovery</p>', unsafe_allow_html=True)
     render_recovery_status(df_health)
+
+    st.divider()
+
+    # ── Upcoming races (from Garmin calendar events) ─────────────────────────
+    _render_upcoming_races(df_calendar)
 
     st.divider()
 

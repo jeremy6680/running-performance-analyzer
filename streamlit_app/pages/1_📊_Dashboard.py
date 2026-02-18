@@ -132,11 +132,11 @@ def render_charts(df: pd.DataFrame, weeks: int) -> None:
 
 def render_recent_activities(df: pd.DataFrame) -> None:
     """
-    Render a formatted table of recent activities.
+    Render a formatted table of recent activities with weather context.
 
     Applies human-readable formatting to all columns before display.
-    Streamlit's st.dataframe() would show raw floats — we build a
-    display DataFrame with formatted strings instead.
+    Weather data (temperature, condition) is loaded separately and joined
+    by activity_date to enrich each row when available.
 
     Args:
         df: Recent activities DataFrame from load_recent_activities().
@@ -147,11 +147,65 @@ def render_recent_activities(df: pd.DataFrame) -> None:
         st.info("No activities found. Run the ingestion pipeline first.")
         return
 
-    # Build a display-friendly DataFrame with formatted values
+    # ── Load weather data for enrichment ─────────────────────────────────────
+    # Weather is stored in the bronze layer (raw_garmin_activities) and loaded
+    # via load_weather_data(). We join on activity_date (not activity_id) since
+    # the recent activities query returns stg_garmin_activities (silver layer)
+    # which does not carry weather columns.
+    from utils.database import load_weather_data
+
+    if "weather_data" not in st.session_state:
+        df_weather_raw = load_weather_data()
+        if not df_weather_raw.empty:
+            df_weather_raw["activity_date"] = pd.to_datetime(df_weather_raw["activity_date"])
+        st.session_state["weather_data"] = df_weather_raw
+
+    df_weather = st.session_state["weather_data"]
+
+    # Convert date for joining
+    df_copy = df.copy()
+    df_copy["activity_date"] = pd.to_datetime(df_copy["activity_date"])
+
+    # Join weather on activity_date — LEFT join so activities without weather still appear
+    if not df_weather.empty:
+        # Keep only the weather columns we want to display
+        weather_slim = df_weather[["activity_date", "temp_c", "weather_condition"]].drop_duplicates("activity_date")
+        df_copy = df_copy.merge(weather_slim, on="activity_date", how="left")
+    else:
+        df_copy["temp_c"]           = None
+        df_copy["weather_condition"] = None
+
+    # ── Weather condition → short emoji ──────────────────────────────────────
+    def _weather_icon(condition: str | None) -> str:
+        """
+        Map a Garmin weather condition string to a short emoji + label.
+        Returns '—' when condition is None or unrecognised.
+        """
+        if not condition or pd.isna(condition):
+            return "—"
+        cond = str(condition).lower()
+        if any(k in cond for k in ["sunny", "clear"]):
+            return "☀️ Clear"
+        if any(k in cond for k in ["cloud", "overcast"]):
+            return "☁️ Cloudy"
+        if any(k in cond for k in ["rain", "drizzle", "shower"]):
+            return "🌧️ Rain"
+        if any(k in cond for k in ["snow", "sleet", "flurr"]):
+            return "❄️ Snow"
+        if any(k in cond for k in ["wind", "gust"]):
+            return "💨 Windy"
+        if "fog" in cond or "mist" in cond:
+            return "🌫️ Foggy"
+        if "thunder" in cond or "storm" in cond:
+            return "⛈️ Storm"
+        # Return the raw value capitalised as a fallback
+        return condition.capitalize()
+
+    # ── Build display DataFrame ───────────────────────────────────────────────
     display_df = pd.DataFrame({
-        "Date":     df["activity_date"].apply(format_date),
-        "Activity": df["activity_name"].fillna("Run"),
-        "Type":     df["activity_type"].apply(
+        "Date":     df_copy["activity_date"].apply(format_date),
+        "Activity": df_copy["activity_name"].fillna("Run"),
+        "Type":     df_copy["activity_type"].apply(
                         lambda t: ACTIVITY_TYPES.get(
                             str(t).lower(), {"icon": "⚡", "label": str(t)}
                         )["icon"] + " " +
@@ -159,11 +213,16 @@ def render_recent_activities(df: pd.DataFrame) -> None:
                             str(t).lower(), {"icon": "⚡", "label": str(t)}
                         )["label"]
                     ),
-        "Distance": df["distance_km"].apply(format_distance),
-        "Duration": df["duration_minutes"].apply(format_duration),
-        "Pace":     df["pace_min_km"].apply(format_pace),
-        "Avg HR":   df["avg_heart_rate"].apply(format_heart_rate),
-        "Zone":     df["pace_zone"].fillna("—").str.capitalize(),
+        "Distance": df_copy["distance_km"].apply(format_distance),
+        "Duration": df_copy["duration_minutes"].apply(format_duration),
+        "Pace":     df_copy["pace_min_km"].apply(format_pace),
+        "Avg HR":   df_copy["avg_heart_rate"].apply(format_heart_rate),
+        "Zone":     df_copy["pace_zone"].fillna("—").str.capitalize(),
+        # Weather columns — shown when data is available
+        "Temp":     df_copy["temp_c"].apply(
+                        lambda t: f"{t:.0f}°C" if pd.notna(t) else "—"
+                    ),
+        "Weather":  df_copy["weather_condition"].apply(_weather_icon),
     })
 
     st.dataframe(
@@ -171,6 +230,15 @@ def render_recent_activities(df: pd.DataFrame) -> None:
         use_container_width=True,
         hide_index=True,
     )
+
+    # Caption only if at least one activity has weather data
+    has_weather = display_df["Temp"].ne("—").any()
+    if not has_weather:
+        st.caption(
+            "💡 **No weather data yet.** Weather is fetched from Garmin during ingestion. "
+            "Re-run the ingestion script to populate temperature & conditions: "
+            "`python -m ingestion.ingest_garmin --days 30`"
+        )
 
 
 # ---------------------------------------------------------------------------
