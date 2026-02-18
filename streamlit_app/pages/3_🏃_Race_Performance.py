@@ -595,13 +595,14 @@ st.divider()
 
 st.markdown('<p class="section-header">🥇 Personal Records</p>', unsafe_allow_html=True)
 
-# Group PRs by distance category
-pr_distances = (
-    df.dropna(subset=["race_distance_category"])
-    .groupby("race_distance_category")
-    .apply(lambda g: g.loc[g["pace_min_per_km"].idxmin()])
-    .reset_index(drop=True)
-)
+# Group PRs by distance category — one row per distance (the fastest race).
+# We use idxmin() to find the index of the fastest pace per group, then
+# select those rows directly from the DataFrame. This is simpler and faster
+# than groupby.apply(), and avoids the pandas 2.2 FutureWarning about
+# grouping columns being included in apply callbacks.
+_df_races = df.dropna(subset=["race_distance_category", "pace_min_per_km"])
+pr_idx = _df_races.groupby("race_distance_category")["pace_min_per_km"].idxmin()
+pr_distances = _df_races.loc[pr_idx].reset_index(drop=True)
 
 # Order by standard race distances
 pr_distances["_order"] = pr_distances["race_distance_category"].apply(
