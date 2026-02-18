@@ -592,9 +592,9 @@ class GarminConnector:
                             return "10K"
                         if 20.9 <= km <= 21.4:
                             return "Half Marathon"
-                        if 41.9 <= km <= 42.6:
+                        if 41.9 <= km <= 43.0:
                             return "Marathon"
-                        if km > 42.6:
+                        if km > 43.0:
                             return "Ultra"
                         return None  # Non-standard distance (e.g. 15K, trail)
 

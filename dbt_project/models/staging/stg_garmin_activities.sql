@@ -232,8 +232,8 @@ enriched AS (
       WHEN distance_km BETWEEN 4.8 AND 5.2  THEN '5K'
       WHEN distance_km BETWEEN 9.8 AND 10.3 THEN '10K'           -- e.g. 10.11 km is still a 10K
       WHEN distance_km BETWEEN 20.9 AND 21.4 THEN 'Half Marathon'
-      WHEN distance_km BETWEEN 41.9 AND 42.6 THEN 'Marathon'
-      WHEN distance_km > 42.6 THEN 'Ultra'
+      WHEN distance_km BETWEEN 41.9 AND 43.0 THEN 'Marathon'
+      WHEN distance_km > 43.0 THEN 'Ultra'
       ELSE NULL  -- Non-standard distance or data issue
     END AS race_distance_category,
     
