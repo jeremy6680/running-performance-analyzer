@@ -234,6 +234,15 @@ class GarminConnector:
         Garmin stores weather conditions at the start of each GPS activity.
         Not all activities have weather data (e.g. treadmill runs).
 
+        The Garmin weather API response shape (verified 2026-02-18):
+        {
+            "temp": 57,                          # Fahrenheit integer
+            "apparentTemp": 57,                  # Fahrenheit integer
+            "relativeHumidity": 44,              # percentage 0-100
+            "windSpeed": 6,                      # km/h
+            "weatherTypeDTO": {"desc": "Fair"},  # human-readable condition
+        }
+
         Args:
             activity_id: Garmin activity ID (as string)
 
@@ -263,38 +272,43 @@ class GarminConnector:
             # Handle both list and dict responses
             weather = raw[0] if isinstance(raw, list) else raw
 
-            # Temperature: Garmin returns Celsius by default in the Connect app,
-            # but the raw API value may be in tenths of degrees — we normalise here.
-            # The field name varies between API versions; we try both.
-            temp_raw = weather.get("temperature") or weather.get("temp")
-            feels_raw = weather.get("apparentTemperature") or weather.get("feelsLike")
-
-            # If value looks like it's in tenths of a degree (e.g. 185 instead of 18.5)
-            # this can happen with some Garmin firmware/API combos — guard against it.
-            def normalise_temp(val):
-                """Convert temperature to Celsius; guard against tenths-of-degree values."""
-                if val is None:
+            def fahrenheit_to_celsius(f_val) -> Optional[float]:
+                """
+                Convert a Fahrenheit value to Celsius.
+                Garmin's activity weather API always returns temperature in
+                Fahrenheit regardless of the account's unit setting.
+                Returns None if the value is None.
+                """
+                if f_val is None:
                     return None
-                # Values above 60°C or below -60°C are almost certainly tenths of a degree
-                if val > 60 or val < -60:
-                    return round(val / 10, 1)
-                return round(float(val), 1)
+                return round((float(f_val) - 32) / 1.8, 1)
 
-            # Wind speed: Garmin returns km/h; convert to m/s for SI consistency
-            wind_kmh = weather.get("windSpeed") or weather.get("wind_speed")
-            wind_ms = round(wind_kmh / 3.6, 2) if wind_kmh is not None else None
+            # Temperature: API uses "temp" and "apparentTemp" (both in Fahrenheit)
+            temp_c       = fahrenheit_to_celsius(weather.get("temp"))
+            feels_like_c = fahrenheit_to_celsius(weather.get("apparentTemp"))
 
-            # Weather condition: standardise to uppercase string
-            condition = weather.get("weatherType") or weather.get("condition")
+            # Wind speed: Garmin returns km/h — convert to m/s for SI consistency
+            wind_kmh = weather.get("windSpeed")
+            wind_ms  = round(wind_kmh / 3.6, 2) if wind_kmh is not None else None
+
+            # Weather condition: nested under weatherTypeDTO.desc
+            # Fallback to top-level weatherType key for older API responses
+            weather_type_dto = weather.get("weatherTypeDTO") or {}
+            condition = (
+                weather_type_dto.get("desc")
+                or weather.get("weatherType")
+                or weather.get("condition")
+            )
             if condition:
-                condition = str(condition).upper().replace(" ", "_")
+                # Normalise to uppercase with underscores: "Partly Cloudy" → "PARTLY_CLOUDY"
+                condition = str(condition).strip().upper().replace(" ", "_")
 
             return {
-                "weather_temp_c": normalise_temp(temp_raw),
-                "weather_feels_like_c": normalise_temp(feels_raw),
-                "weather_humidity_pct": weather.get("relativeHumidity") or weather.get("humidity"),
+                "weather_temp_c":        temp_c,
+                "weather_feels_like_c":  feels_like_c,
+                "weather_humidity_pct":  weather.get("relativeHumidity"),
                 "weather_wind_speed_ms": wind_ms,
-                "weather_condition": condition,
+                "weather_condition":     condition,
                 "weather_precipitation_mm": weather.get("precipitation"),
             }
 
@@ -555,15 +569,32 @@ class GarminConnector:
 
         for year, month in months_to_fetch:
             try:
-                # Garmin calendar API: month is 0-indexed in the URL
-                raw = self.client.get_calendar(year, month - 1)
+                # Garmin calendar REST endpoint.
+                # garminconnect 0.2.x has no get_calendar() method — we call
+                # the underlying connectapi() directly with the correct URL.
+                # The endpoint returns a JSON object with a "calendarItems" list.
+                url = f"/calendar-service/year/{year}/month/{month - 1}"  # month is 0-indexed
+                raw = self.client.connectapi(url)
                 items = raw.get("calendarItems", []) if raw else []
 
+                # Log a summary of what the API returned for this month
+                # so we can diagnose filter issues without spamming every item
+                race_items = [i for i in items if i.get("isRace")]
+                if race_items:
+                    logger.info(
+                        f"  {year}-{month:02d}: {len(items)} calendar items, "
+                        f"{len(race_items)} with isRace=True — "
+                        f"itemTypes: {list(set(i.get('itemType') for i in race_items))}"
+                    )
+
                 for item in items:
-                    # Only process race events
+                    # Only process race events.
+                    # We rely solely on isRace=True rather than also checking
+                    # itemType == 'event', because Garmin returns different
+                    # itemType values for race entries depending on the API
+                    # version and event source ('event', 'race', 'workout', etc.).
+                    # isRace is the authoritative flag.
                     if not item.get("isRace"):
-                        continue
-                    if item.get("itemType") != "event":
                         continue
 
                     # De-duplicate: events registered in multiple months show up twice

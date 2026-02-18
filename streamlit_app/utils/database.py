@@ -180,13 +180,9 @@ def load_weather_data() -> pd.DataFrame:
             r.duration_minutes,
             r.avg_pace_min_km,
             r.avg_heart_rate,
-            -- Normalise temperature: auto-detect Fahrenheit (> 40) and convert
-            CASE
-                WHEN r.weather_temp_c > 40
-                THEN ROUND((r.weather_temp_c - 32) / 1.8, 1)
-                ELSE ROUND(r.weather_temp_c, 1)
-            END AS temp_c,
-            r.weather_temp_c     AS temp_raw,   -- keep original for debug
+            -- Temperature is stored in Celsius (converted from Fahrenheit during ingestion)
+            ROUND(r.weather_temp_c, 1) AS temp_c,
+            r.weather_temp_c AS temp_raw,   -- keep original for debug
             r.weather_humidity_pct    AS humidity_pct,
             -- Wind speed: convert m/s to km/h for readability
             ROUND(r.weather_wind_speed_ms * 3.6, 1) AS wind_kmh,

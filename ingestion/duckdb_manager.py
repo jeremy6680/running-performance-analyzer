@@ -311,8 +311,15 @@ class DuckDBManager:
             """)
 
         elif mode == "upsert":
-            # Insert new records only (skip existing activity_ids)
-            logger.info("Upserting activities (insert or update)...")
+            # Two-phase upsert:
+            #   Phase 1 — insert brand-new activity_ids
+            #   Phase 2 — update weather columns on existing rows that still
+            #             have NULL weather (happens when activities were first
+            #             ingested before weather fetching was added, or when
+            #             a previous run failed to fetch weather for some rows)
+            logger.info("Upserting activities (insert new + refresh NULL weather)...")
+
+            # Phase 1: insert rows whose activity_id is not yet in the table
             conn.execute(f"""
                 INSERT INTO raw_garmin_activities ({col_list}, inserted_at, updated_at)
                 SELECT {select_list},
@@ -323,6 +330,59 @@ class DuckDBManager:
                     SELECT activity_id FROM raw_garmin_activities
                 )
             """)
+
+            # Phase 2: back-fill weather on existing rows that lack it.
+            # Only touch rows where weather_temp_c is still NULL AND the
+            # incoming DataFrame has a non-NULL value for that activity_id.
+            # We iterate over the DataFrame rows so we can use parameterised
+            # UPDATE statements (DuckDB doesn't support UPDATE … FROM df natively
+            # in all versions, so we build per-row updates for the small subset
+            # of rows that qualify).
+            weather_cols = [
+                "weather_temp_c", "weather_feels_like_c", "weather_humidity_pct",
+                "weather_wind_speed_ms", "weather_condition", "weather_precipitation_mm",
+            ]
+            # Only look at rows that have at least one non-NULL weather field
+            has_weather_mask = df[weather_cols].notna().any(axis=1)
+            df_with_weather = df[has_weather_mask]
+
+            if not df_with_weather.empty:
+                # Fetch which existing rows still have NULL weather_temp_c
+                existing_null_weather = conn.execute(
+                    "SELECT activity_id FROM raw_garmin_activities "
+                    "WHERE weather_temp_c IS NULL"
+                ).df()["activity_id"].tolist()
+
+                to_update = df_with_weather[
+                    df_with_weather["activity_id"].isin(existing_null_weather)
+                ]
+
+                updated_count = 0
+                for _, row in to_update.iterrows():
+                    set_clauses = []
+                    values = []
+                    for col in weather_cols:
+                        if col in row.index and row[col] is not None and not (
+                            isinstance(row[col], float) and pd.isna(row[col])
+                        ):
+                            set_clauses.append(f"{col} = ?")
+                            values.append(row[col])
+
+                    if set_clauses:
+                        set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+                        sql = (
+                            "UPDATE raw_garmin_activities SET "
+                            + ", ".join(set_clauses)
+                            + " WHERE activity_id = ?"
+                        )
+                        values.append(row["activity_id"])
+                        conn.execute(sql, values)
+                        updated_count += 1
+
+                if updated_count:
+                    logger.info(
+                        f"  ↳ Back-filled weather for {updated_count} existing activities"
+                    )
         else:
             raise ValueError(f"Invalid mode: {mode}. Use 'append', 'replace', or 'upsert'")
         
