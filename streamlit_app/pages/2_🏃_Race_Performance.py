@@ -1,3 +1,5 @@
+# streamlit_app/pages/2_🏃_Race_Performance.py
+# Renumbered from 3 → 2 after merging the old Dashboard page into app.py.
 """
 Race Performance Page - Running Performance Analyzer
 =====================================================
@@ -52,20 +54,18 @@ st.set_page_config(
 
 DB_PATH = str(Path(__file__).parent.parent.parent / "data" / "duckdb" / "running_analytics.duckdb")
 
-# Garmin-inspired color palette (consistent across all pages)
 COLORS = {
-    "primary":   "#00B4D8",  # Garmin blue
-    "secondary": "#0077B6",  # Darker blue
-    "accent":    "#F77F00",  # Orange
-    "success":   "#2DC653",  # Green — PR / good performance
-    "warning":   "#FFD60A",  # Yellow — near PR
-    "danger":    "#EF233C",  # Red — off day
+    "primary":   "#00B4D8",
+    "secondary": "#0077B6",
+    "accent":    "#F77F00",
+    "success":   "#2DC653",
+    "warning":   "#FFD60A",
+    "danger":    "#EF233C",
     "card_bg":   "#FFFFFF",
     "text":      "#1A1A2E",
     "muted":     "#6C757D",
 }
 
-# Performance rating → color mapping
 RATING_COLORS = {
     "PR":       COLORS["success"],
     "Near PR":  COLORS["warning"],
@@ -74,7 +74,6 @@ RATING_COLORS = {
     "Off Day":  COLORS["danger"],
 }
 
-# Standard race distances for ordering / filtering
 DISTANCE_ORDER = ["5K", "10K", "Half Marathon", "Marathon", "Ultra"]
 
 # =============================================================================
@@ -91,8 +90,6 @@ st.markdown("""
         border-bottom: 2px solid #00B4D8;
         margin-bottom: 1.2rem;
     }
-
-    /* PR badge */
     .pr-badge {
         display: inline-block;
         background: #2DC653;
@@ -103,8 +100,6 @@ st.markdown("""
         border-radius: 10px;
         letter-spacing: 0.05em;
     }
-
-    /* Performance rating pill */
     .rating-pill {
         display: inline-block;
         font-size: 0.8rem;
@@ -165,7 +160,6 @@ def load_races() -> pd.DataFrame:
 def load_calendar() -> pd.DataFrame:
     """
     Load upcoming calendar race events from the silver layer.
-    Caches result in st.session_state for the session duration.
 
     Returns:
         pd.DataFrame: Calendar events (empty DataFrame on error).
@@ -199,8 +193,7 @@ def load_calendar() -> pd.DataFrame:
         st.session_state["calendar_events"] = df
         return df
 
-    except Exception as e:
-        # Table may not exist yet — silently return empty
+    except Exception:
         return pd.DataFrame()
     finally:
         conn.close()
@@ -225,7 +218,6 @@ with st.sidebar:
 
     st.divider()
 
-    # Distance filter — populated dynamically from data
     st.subheader("🏅 Distance")
     distance_filter = st.multiselect(
         "Race distance",
@@ -236,11 +228,10 @@ with st.sidebar:
 
     st.divider()
 
-    # Year filter
     st.subheader("📅 Year")
     year_filter = st.multiselect(
         "Race year",
-        options=[],   # populated below after data loads
+        options=[],
         default=[],
         placeholder="All years",
         key="year_filter_placeholder",
@@ -256,14 +247,9 @@ st.caption("Personal records, race history, and performance trends.")
 # =============================================================================
 # UPCOMING RACES (from Garmin calendar)
 # =============================================================================
-# Displayed at the top of the page so the user sees what’s coming up next.
-# Goal times (from race_goals seed) are joined to calendar events by
-# matching race_distance_category so the runner can see target vs. plan.
 
 df_calendar = load_calendar()
 
-# Load race_goals seed to show target times alongside calendar events
-# We load them from DuckDB directly (seeded by dbt) rather than reading the CSV
 _goals_conn = get_db_connection()
 _goals_df   = pd.DataFrame()
 if _goals_conn is not None:
@@ -285,11 +271,10 @@ if not df_calendar.empty:
     df_upcoming = df_calendar[df_calendar["is_upcoming"].astype(bool)].copy()
 
     if df_upcoming.empty:
-        st.info("📋 No upcoming races in your Garmin calendar. All scheduled events are in the past.")
+        st.info("📋 No upcoming races in your Garmin calendar.")
     else:
         df_upcoming = df_upcoming.sort_values("event_date")
 
-        # Join goal times to calendar events (match on date first, then distance category)
         if not _goals_df.empty:
             df_upcoming = df_upcoming.merge(
                 _goals_df.rename(columns={
@@ -309,30 +294,25 @@ if not df_calendar.empty:
 
         cols = st.columns(min(len(df_upcoming), 4), gap="medium")
 
+        dist_icons = {"5K": "5️⃣", "10K": "🔟", "Half Marathon": "🏅", "Marathon": "🏆", "Ultra": "💪"}
+
         for i, (_, row) in enumerate(df_upcoming.iterrows()):
             with cols[i % min(len(df_upcoming), 4)]:
-                days_left = int(row.get("days_until_race", 0))
-                race_date = row["event_date"].strftime("%b %d, %Y")
-                title     = row.get("title") or "Race"
-                dist_cat  = row.get("race_distance_category") or ""
-                location  = row.get("location") or ""
-                race_url  = row.get("url") or ""
-                goal_time = row.get("goal_time") or ""
-                goal_note = row.get("goal_notes") or ""
+                days_left    = int(row.get("days_until_race", 0))
+                race_date    = row["event_date"].strftime("%b %d, %Y")
+                title        = row.get("title") or "Race"
+                dist_cat     = row.get("race_distance_category") or ""
+                location     = row.get("location") or ""
+                race_url     = row.get("url") or ""
+                goal_time    = row.get("goal_time") or ""
+                goal_note    = row.get("goal_notes") or ""
+                dist_icon    = dist_icons.get(dist_cat, "🏁")
 
-                if days_left <= 14:
-                    border_color = "#EF233C"
-                elif days_left <= 30:
-                    border_color = "#F77F00"
-                else:
-                    border_color = "#0077B6"
-
-                dist_icons = {
-                    "5K": "5️⃣", "10K": "🔟",
-                    "Half Marathon": "🏅", "Marathon": "🏆", "Ultra": "💪",
-                }
-                dist_icon = dist_icons.get(dist_cat, "🏁")
-
+                border_color = (
+                    "#EF233C" if days_left <= 14
+                    else "#F77F00" if days_left <= 30
+                    else "#0077B6"
+                )
                 countdown_label = "TODAY" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}"
 
                 goal_block = (
@@ -342,14 +322,8 @@ if not df_calendar.empty:
                     + "</div>"
                 ) if goal_time else ""
 
-                # Build the link as a bare <a> tag only — the wrapping <div> is
-                # added conditionally in the f-string below. This mirrors the
-                # pattern used in app.py and avoids Streamlit 1.45 markdown
-                # stripping the HTML when a full block-level <div> is injected
-                # as a Python variable rather than as literal template text.
                 link_html = (
-                    f'<a href="{race_url}" target="_blank" '
-                    f'style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
+                    f'<a href="{race_url}" target="_blank" style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
                 ) if race_url else ""
 
                 st.markdown(f"""
@@ -382,7 +356,6 @@ if not df_calendar.empty:
 
 df_all = load_races()
 
-# --- Empty state ---
 if df_all.empty:
     st.info(
         "**No race data found yet.**\n\n"
@@ -394,10 +367,8 @@ if df_all.empty:
     )
     st.stop()
 
-# --- Populate year filter now that data is loaded ---
 available_years = sorted(df_all["race_year"].dropna().unique().astype(int).tolist(), reverse=True)
 
-# Re-render sidebar year filter with real options
 with st.sidebar:
     year_filter = st.multiselect(
         "Race year",
@@ -407,12 +378,10 @@ with st.sidebar:
         key="year_filter_real",
     )
 
-# --- Apply filters ---
 df = df_all.copy()
 
 if distance_filter:
     df = df[df["race_distance_category"].isin(distance_filter)]
-
 if year_filter:
     df = df[df["race_year"].isin(year_filter)]
 
@@ -431,12 +400,10 @@ total_prs     = int(df["is_personal_record"].sum())
 distances_run = df["race_distance_category"].dropna().nunique()
 best_rating   = df["performance_rating"].value_counts().idxmax() if not df.empty else "—"
 
-# Best 10K pace (most common distance)
 best_pace_row = df[df["race_distance_category"] == "10K"].sort_values("pace_min_per_km").head(1)
 best_10k_pace = f"{best_pace_row['pace_min_per_km'].values[0]:.2f} min/km" if not best_pace_row.empty else "—"
 
 col1, col2, col3, col4, col5 = st.columns(5)
-
 with col1:
     st.metric("🏁 Total Races", total_races)
 with col2:
@@ -456,7 +423,6 @@ st.divider()
 
 st.markdown('<p class="section-header">📋 Race History</p>', unsafe_allow_html=True)
 
-# Build a clean display DataFrame
 display_cols = {
     "race_date":              "Date",
     "race_distance_category": "Distance",
@@ -471,48 +437,26 @@ display_cols = {
     "recovery_status":        "Recovery",
 }
 
-# Only include columns that exist in the DataFrame
 available_display_cols = {k: v for k, v in display_cols.items() if k in df.columns}
-
 df_display = (
     df[list(available_display_cols.keys())]
     .copy()
     .sort_values("race_date", ascending=False)
     .rename(columns=available_display_cols)
 )
-
-# Format date for display
 df_display["Date"] = pd.to_datetime(df_display["Date"]).dt.strftime("%b %d, %Y")
 
-# Format PR column as emoji
 if "PR" in df_display.columns:
     df_display["PR"] = df_display["PR"].apply(lambda x: "🥇" if x else "")
-
-# Format % off PR
 if "% off PR" in df_display.columns:
     df_display["% off PR"] = df_display["% off PR"].apply(
         lambda x: f"+{x:.1f}%" if pd.notna(x) and x > 0 else ("PR" if pd.notna(x) else "—")
     )
-
-# Round numeric columns
 for col, decimals in [("Dist (km)", 2), ("Pace (min/km)", 2), ("Avg HR", 0)]:
     if col in df_display.columns:
         df_display[col] = df_display[col].round(decimals)
 
-st.dataframe(
-    df_display,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Rating": st.column_config.TextColumn("Rating"),
-        "Readiness": st.column_config.NumberColumn(
-            "Readiness (1-10)",
-            help="Training readiness score based on volume and recovery in the 30 days before the race",
-            format="%d / 10",
-        ),
-    },
-)
-
+st.dataframe(df_display, use_container_width=True, hide_index=True)
 st.divider()
 
 # =============================================================================
@@ -521,11 +465,9 @@ st.divider()
 
 st.markdown('<p class="section-header">📈 Pace Progression</p>', unsafe_allow_html=True)
 
-# Only chart distances with at least one race
 chartable = df.dropna(subset=["race_distance_category", "pace_min_per_km"])
 
 if not chartable.empty:
-    # Color by performance rating so PRs stand out
     fig_pace = px.scatter(
         chartable,
         x="race_date",
@@ -543,20 +485,18 @@ if not chartable.empty:
             "finish_time_formatted": True,
             "performance_rating":    True,
             "is_personal_record":    True,
-            "distance_km":           False,  # hidden (used for size only)
+            "distance_km":           False,
         },
         labels={
-            "race_date":         "Race Date",
-            "pace_min_per_km":   "Pace (min/km)",
-            "performance_rating": "Rating",
+            "race_date":              "Race Date",
+            "pace_min_per_km":        "Pace (min/km)",
+            "performance_rating":     "Rating",
             "race_distance_category": "Distance",
         },
     )
 
-    # Add PR annotation lines per distance category
     for dist_cat in chartable["race_distance_category"].unique():
-        dist_df = chartable[chartable["race_distance_category"] == dist_cat]
-        pr_pace = dist_df["pace_min_per_km"].min()
+        pr_pace = chartable[chartable["race_distance_category"] == dist_cat]["pace_min_per_km"].min()
         fig_pace.add_hline(
             y=pr_pace,
             line_dash="dot",
@@ -572,22 +512,13 @@ if not chartable.empty:
         margin=dict(t=30, b=10, l=10, r=10),
         plot_bgcolor=COLORS["card_bg"],
         paper_bgcolor=COLORS["card_bg"],
-        yaxis=dict(
-            title="Pace (min/km) — lower = faster",
-            autorange="reversed",  # faster pace (lower number) at top
-            gridcolor="#E8ECF0",
-        ),
+        yaxis=dict(title="Pace (min/km) — lower = faster", autorange="reversed", gridcolor="#E8ECF0"),
         xaxis=dict(title=None, showgrid=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
 
     st.plotly_chart(fig_pace, use_container_width=True)
-    st.caption(
-        "Pace axis is inverted — lower on screen = faster pace. "
-        "Green dashed lines mark your current PR at each distance. "
-        "🥇 Green dots = Personal Records."
-    )
-
+    st.caption("Pace axis is inverted — lower = faster. Green dashed lines = current PR per distance. 🥇 Green dots = Personal Records.")
 else:
     st.info("Not enough race data to plot pace progression.")
 
@@ -599,16 +530,9 @@ st.divider()
 
 st.markdown('<p class="section-header">🥇 Personal Records</p>', unsafe_allow_html=True)
 
-# Group PRs by distance category — one row per distance (the fastest race).
-# We use idxmin() to find the index of the fastest pace per group, then
-# select those rows directly from the DataFrame. This is simpler and faster
-# than groupby.apply(), and avoids the pandas 2.2 FutureWarning about
-# grouping columns being included in apply callbacks.
 _df_races = df.dropna(subset=["race_distance_category", "pace_min_per_km"])
 pr_idx = _df_races.groupby("race_distance_category")["pace_min_per_km"].idxmin()
 pr_distances = _df_races.loc[pr_idx].reset_index(drop=True)
-
-# Order by standard race distances
 pr_distances["_order"] = pr_distances["race_distance_category"].apply(
     lambda d: DISTANCE_ORDER.index(d) if d in DISTANCE_ORDER else 99
 )
@@ -616,13 +540,11 @@ pr_distances = pr_distances.sort_values("_order")
 
 if not pr_distances.empty:
     cols = st.columns(min(len(pr_distances), 4))
-
     for i, (_, row) in enumerate(pr_distances.iterrows()):
         with cols[i % len(cols)]:
             race_date_str = pd.to_datetime(row["race_date"]).strftime("%b %d, %Y")
-            pace = f"{row['pace_min_per_km']:.2f} min/km"
+            pace   = f"{row['pace_min_per_km']:.2f} min/km"
             finish = row.get("finish_time_formatted", "—")
-
             st.markdown(f"""
             <div style="background:#FFFFFF; border:1px solid #E8ECF0; border-radius:10px;
                         padding:1rem 1.2rem; text-align:center; border-top: 4px solid #2DC653;">
@@ -637,8 +559,7 @@ if not pr_distances.empty:
                 <div style="font-size:0.8rem; color:#6C757D; margin-top:0.3rem;">{race_date_str}</div>
             </div>
             """, unsafe_allow_html=True)
-            st.markdown("")  # spacing
-
+            st.markdown("")
 else:
     st.info("No PR data available for the selected filters.")
 
@@ -647,19 +568,15 @@ st.divider()
 # =============================================================================
 # SECTION 4b — GOAL ACHIEVEMENT
 # =============================================================================
-# Show planned vs actual times for races that have a goal set in race_goals.csv
-# Columns: goal_race_name, goal_time_formatted_target, seconds_vs_goal, goal_achievement
 
 goal_races = df[df["goal_race_name"].notna()].sort_values("race_date") if "goal_race_name" in df.columns else pd.DataFrame()
 
 if not goal_races.empty:
     st.markdown('<p class="section-header">🎯 Goal Achievement</p>', unsafe_allow_html=True)
 
-    # Summary row: how many goals achieved?
-    total_goals    = len(goal_races)
-    achieved       = (goal_races["goal_achievement"] == "Goal achieved ✅").sum()
-    just_missed    = (goal_races["goal_achievement"] == "Just missed (<2%)").sum()
-    missed         = total_goals - achieved - just_missed
+    total_goals = len(goal_races)
+    achieved    = (goal_races["goal_achievement"] == "Goal achieved ✅").sum()
+    missed      = total_goals - achieved - (goal_races["goal_achievement"] == "Just missed (<2%)").sum()
 
     col_g1, col_g2, col_g3 = st.columns(3)
     with col_g1:
@@ -670,44 +587,36 @@ if not goal_races.empty:
         st.metric("❌ Missed", missed)
 
     st.markdown("")
-
-    # One card per goal race
     goal_cols = st.columns(min(len(goal_races), 3))
 
     for i, (_, row) in enumerate(goal_races.iterrows()):
         with goal_cols[i % len(goal_cols)]:
             race_date_str = pd.to_datetime(row["race_date"]).strftime("%b %d, %Y")
-            actual        = row.get("finish_time_formatted", "—")
-            target        = row.get("goal_time_formatted_target", "—")
-            achievement   = row.get("goal_achievement", "No goal set")
-            dist_cat      = row.get("race_distance_category", "")
-            notes         = row.get("goal_notes", "")
+            actual      = row.get("finish_time_formatted", "—")
+            target      = row.get("goal_time_formatted_target", "—")
+            achievement = row.get("goal_achievement", "No goal set")
+            dist_cat    = row.get("race_distance_category", "")
+            notes       = row.get("goal_notes", "")
+            secs        = row.get("seconds_vs_goal")
 
-            # Seconds vs goal — format as +/- string
-            secs = row.get("seconds_vs_goal")
             if pd.notna(secs):
                 sign    = "+" if secs > 0 else ""
                 abs_min = int(abs(secs) // 60)
                 abs_sec = int(abs(secs) % 60)
-                delta_str = f"{sign}{abs_min}:{abs_sec:02d}"
+                delta_str   = f"{sign}{abs_min}:{abs_sec:02d}"
                 delta_color = "#EF233C" if secs > 0 else "#2DC653"
             else:
                 delta_str   = "—"
                 delta_color = "#6C757D"
 
-            # Card border color by achievement
             if "achieved" in achievement:
-                border_color = "#2DC653"
-                icon = "✅"
+                border_color, icon = "#2DC653", "✅"
             elif "Just missed" in achievement:
-                border_color = "#FFD60A"
-                icon = "🔶"
+                border_color, icon = "#FFD60A", "🔶"
             elif "No goal" in achievement:
-                border_color = "#6C757D"
-                icon = "📋"
+                border_color, icon = "#6C757D", "📋"
             else:
-                border_color = "#EF233C"
-                icon = "❌"
+                border_color, icon = "#EF233C", "❌"
 
             st.markdown(f"""
             <div style="background:#FFF; border:1px solid #E8ECF0; border-radius:10px;
@@ -744,7 +653,6 @@ if not goal_races.empty:
 # =============================================================================
 
 if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().any():
-
     st.markdown('<p class="section-header">🎯 Race Readiness & Training Context</p>', unsafe_allow_html=True)
 
     df_context = df.dropna(subset=["race_readiness_score"]).sort_values("race_date")
@@ -754,7 +662,6 @@ if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().a
 
         with col_chart:
             fig_ready = go.Figure()
-
             fig_ready.add_trace(go.Bar(
                 x=df_context["race_date"].dt.strftime("%b %d, %Y"),
                 y=df_context["race_readiness_score"],
@@ -766,12 +673,8 @@ if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().a
                 ],
                 text=df_context["race_readiness_score"].astype(str) + " / 10",
                 textposition="outside",
-                hovertemplate=(
-                    "<b>%{x}</b><br>"
-                    "Readiness: %{y}/10<extra></extra>"
-                ),
+                hovertemplate="<b>%{x}</b><br>Readiness: %{y}/10<extra></extra>",
             ))
-
             fig_ready.update_layout(
                 height=280,
                 margin=dict(t=20, b=10, l=10, r=10),
@@ -781,15 +684,10 @@ if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().a
                 xaxis=dict(showgrid=False),
                 showlegend=False,
             )
-
             st.plotly_chart(fig_ready, use_container_width=True)
-            st.caption(
-                "Readiness score (1–10) based on training volume and recovery "
-                "in the 30 days before each race. Green ≥ 8, Yellow ≥ 6, Red < 6."
-            )
+            st.caption("Readiness score (1–10) based on training volume and recovery in the 30 days before each race.")
 
         with col_table:
-            # Training context table
             ctx_cols = {
                 "race_date":                   "Race",
                 "total_training_distance_30d": "Volume 30d (km)",
@@ -801,11 +699,9 @@ if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().a
             available_ctx = {k: v for k, v in ctx_cols.items() if k in df_context.columns}
             df_ctx_display = df_context[list(available_ctx.keys())].rename(columns=available_ctx).copy()
             df_ctx_display["Race"] = pd.to_datetime(df_ctx_display["Race"]).dt.strftime("%b %d")
-
             for col in ["Volume 30d (km)", "Avg Pace 30d", "Pace diff"]:
                 if col in df_ctx_display.columns:
                     df_ctx_display[col] = df_ctx_display[col].round(2)
-
             st.dataframe(df_ctx_display, use_container_width=True, hide_index=True)
 
     st.divider()
@@ -819,14 +715,8 @@ with st.expander("🗃️ View full race data", expanded=False):
         df_raw = df.copy()
         df_raw["race_date"] = df_raw["race_date"].dt.strftime("%b %d, %Y")
         st.dataframe(df_raw, use_container_width=True, hide_index=True)
-
         csv = df.to_csv(index=False)
-        st.download_button(
-            "⬇️ Download as CSV",
-            data=csv,
-            file_name="race_performance.csv",
-            mime="text/csv",
-        )
+        st.download_button("⬇️ Download as CSV", data=csv, file_name="race_performance.csv", mime="text/csv")
 
 # =============================================================================
 # FOOTER

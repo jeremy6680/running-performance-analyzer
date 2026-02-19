@@ -1,3 +1,5 @@
+# streamlit_app/pages/3_❤️_Health.py
+# Renumbered from 4 → 3 after merging the old Dashboard page into app.py.
 """
 Health & Recovery Page - Running Performance Analyzer
 ======================================================
@@ -64,20 +66,19 @@ DB_PATH = str(
 )
 
 COLORS = {
-    "primary":   "#00B4D8",  # Garmin blue
+    "primary":   "#00B4D8",
     "secondary": "#0077B6",
-    "accent":    "#F77F00",  # Orange
-    "success":   "#2DC653",  # Green -- good recovery
-    "warning":   "#FFD60A",  # Yellow -- moderate
-    "danger":    "#EF233C",  # Red -- poor
-    "hr":        "#EF233C",  # Red -- heart rate
-    "hrv":       "#00B4D8",  # Blue -- HRV
-    "battery":   "#2DC653",  # Green -- body battery
+    "accent":    "#F77F00",
+    "success":   "#2DC653",
+    "warning":   "#FFD60A",
+    "danger":    "#EF233C",
+    "hr":        "#EF233C",
+    "hrv":       "#00B4D8",
+    "battery":   "#2DC653",
     "card_bg":   "#FFFFFF",
     "muted":     "#6C757D",
 }
 
-# Training readiness label -> color
 READINESS_COLORS = {
     "optimal":  COLORS["success"],
     "good":     COLORS["primary"],
@@ -186,7 +187,7 @@ with st.sidebar:
     period_option = st.radio(
         "Quick select",
         ["Last 2 weeks", "Last 4 weeks", "Last 3 months", "All time", "Custom"],
-        index=1,   # default: last 4 weeks
+        index=1,
     )
 
     today = pd.Timestamp.today().normalize()
@@ -203,12 +204,10 @@ with st.sidebar:
     elif period_option == "All time":
         date_start = pd.Timestamp("2000-01-01")
         date_end   = today
-    else:  # Custom
+    else:
         col_a, col_b = st.columns(2)
         with col_a:
-            date_start = pd.Timestamp(
-                st.date_input("From", value=today - pd.DateOffset(weeks=4))
-            )
+            date_start = pd.Timestamp(st.date_input("From", value=today - pd.DateOffset(weeks=4)))
         with col_b:
             date_end = pd.Timestamp(st.date_input("To", value=today))
 
@@ -239,14 +238,11 @@ if df_all.empty:
     )
     st.stop()
 
-# Apply date filter
 mask = (df_all["date"] >= date_start) & (df_all["date"] <= date_end)
-df = df_all[mask].copy()
+df   = df_all[mask].copy()
 
-# Show the actual data range available vs the requested range.
-# This makes it immediately visible when the filter is wider than the data.
-data_min = df_all["date"].min()
-data_max = df_all["date"].max()
+data_min  = df_all["date"].min()
+data_max  = df_all["date"].max()
 data_days = len(df_all)
 
 if date_start < data_min:
@@ -266,34 +262,31 @@ if df.empty:
 
 st.markdown('<p class="section-header">📊 Period Summary</p>', unsafe_allow_html=True)
 
-# Most recent day for the readiness badge
 latest          = df.sort_values("date").iloc[-1]
 readiness_now   = str(latest.get("training_readiness", "")).lower()
 readiness_color = READINESS_COLORS.get(readiness_now, COLORS["muted"])
 
-# Period averages -- guard against all-null columns
 avg_sleep    = df["total_sleep_hours"].mean()
 avg_rhr      = df["resting_heart_rate"].dropna().mean()
-avg_hrv      = df["hrv_numeric"].dropna().mean()       if "hrv_numeric"       in df.columns else None
+avg_hrv      = df["hrv_numeric"].dropna().mean()       if "hrv_numeric"    in df.columns else None
 avg_stress   = df["average_stress_level"].dropna().mean()
-avg_recovery = df["recovery_score"].dropna().mean()    if "recovery_score"    in df.columns else None
+avg_recovery = df["recovery_score"].dropna().mean()    if "recovery_score" in df.columns else None
 avg_steps    = df["total_steps"].dropna().mean()
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 with col1:
-    st.metric("😴 Avg Sleep",     f"{avg_sleep:.1f}h")
+    st.metric("😴 Avg Sleep",    f"{avg_sleep:.1f}h")
 with col2:
-    st.metric("❤️ Avg RHR",      f"{avg_rhr:.0f} bpm"    if pd.notna(avg_rhr)    else "—")
+    st.metric("❤️ Avg RHR",     f"{avg_rhr:.0f} bpm"     if pd.notna(avg_rhr)    else "—")
 with col3:
-    st.metric("📡 Avg HRV",      f"{avg_hrv:.0f} ms"     if avg_hrv is not None and pd.notna(avg_hrv) else "—")
+    st.metric("📡 Avg HRV",     f"{avg_hrv:.0f} ms"      if avg_hrv is not None and pd.notna(avg_hrv) else "—")
 with col4:
-    st.metric("😰 Avg Stress",   f"{avg_stress:.0f}/100" if pd.notna(avg_stress) else "—")
+    st.metric("😰 Avg Stress",  f"{avg_stress:.0f}/100"  if pd.notna(avg_stress) else "—")
 with col5:
-    st.metric("⚡ Avg Recovery",  f"{avg_recovery:.0f}/100" if avg_recovery is not None and pd.notna(avg_recovery) else "—")
+    st.metric("⚡ Avg Recovery", f"{avg_recovery:.0f}/100" if avg_recovery is not None and pd.notna(avg_recovery) else "—")
 with col6:
-    st.metric("👟 Avg Steps",    f"{avg_steps:,.0f}"     if pd.notna(avg_steps)  else "—")
+    st.metric("👟 Avg Steps",   f"{avg_steps:,.0f}"      if pd.notna(avg_steps)  else "—")
 
-# Readiness badge for the most recent day
 if readiness_now:
     st.markdown(
         f"**Latest training readiness:** "
@@ -315,7 +308,6 @@ col_sleep_chart, col_sleep_stages = st.columns([3, 2])
 with col_sleep_chart:
     fig_sleep = go.Figure()
 
-    # Bar: total sleep per night, color-coded by quality threshold
     fig_sleep.add_trace(go.Bar(
         x=df["date"],
         y=df["total_sleep_hours"],
@@ -330,7 +322,6 @@ with col_sleep_chart:
         hovertemplate="<b>%{x|%b %d, %Y}</b><br>Sleep: %{y:.1f}h<extra></extra>",
     ))
 
-    # Line: 7-day rolling average (toggle-able from sidebar)
     if show_7day_avg and "sleep_7day_avg" in df.columns:
         fig_sleep.add_trace(go.Scatter(
             x=df["date"],
@@ -341,7 +332,6 @@ with col_sleep_chart:
             hovertemplate="7d avg: %{y:.1f}h<extra></extra>",
         ))
 
-    # Horizontal reference line at 8 hours (widely recommended minimum)
     fig_sleep.add_hline(
         y=8.0,
         line_dash="dot",
@@ -366,7 +356,6 @@ with col_sleep_chart:
     st.caption("Green >= 7.5h  |  Yellow 6–7.5h  |  Red < 6h.  Dashed = 8h target.")
 
 with col_sleep_stages:
-    # Stacked bar: sleep stages for the most recent 7 nights
     stage_cols   = ["deep_sleep_hours", "rem_sleep_hours", "light_sleep_hours", "awake_hours"]
     stage_labels = {
         "deep_sleep_hours":  "Deep",
@@ -457,9 +446,6 @@ with col_rhr:
         st.info("No resting heart rate data available.")
 
 with col_hrv:
-    # Check for hrv_numeric column — it is aliased from hrv_avg in the mart.
-    # The value is NULL when the Garmin watch did not record overnight HRV
-    # (requires HRV Status feature to be enabled on the device).
     hrv_col_exists = "hrv_numeric" in df.columns
     df_hrv = df.dropna(subset=["hrv_numeric"]) if hrv_col_exists else pd.DataFrame()
 
@@ -487,20 +473,12 @@ with col_hrv:
             xaxis=dict(showgrid=False, tickformat="%b %d"),
         )
         st.plotly_chart(fig_hrv, use_container_width=True)
-        st.caption(
-            "Higher HRV = better recovery capacity. "
-            "Sustained low HRV after hard training signals accumulated fatigue."
-        )
+        st.caption("Higher HRV = better recovery capacity. Sustained low HRV after hard training signals accumulated fatigue.")
     else:
-        # Explain why HRV data might be missing — the most common reason is that
-        # the Garmin device doesn't support HRV Status, or the feature is disabled.
-        # Garmin's HRV Status requires wearing the watch during sleep and is only
-        # available on mid-range and higher devices (Forerunner 255+, Fenix, etc.).
         st.info(
             "**No HRV data available.**\n\n"
             "This usually means one of the following:\n"
-            "- Your Garmin device doesn't support **HRV Status** "
-            "(requires Forerunner 255+ or Fenix/Epix)\n"
+            "- Your Garmin device doesn't support **HRV Status** (requires Forerunner 255+ or Fenix/Epix)\n"
             "- The feature is **disabled** in Garmin Connect settings\n"
             "- You haven't been **wearing the watch during sleep** consistently\n\n"
             "HRV is measured overnight. Once enabled and synced, it will appear here."
@@ -566,14 +544,9 @@ with col_battery:
 
     if not df_battery.empty:
         fig_battery = go.Figure()
-
-        # Shaded area between daily high and low battery level
         fig_battery.add_trace(go.Scatter(
             x=pd.concat([df_battery["date"], df_battery["date"].iloc[::-1]]),
-            y=pd.concat([
-                df_battery["body_battery_high"],
-                df_battery["body_battery_low"].iloc[::-1],
-            ]),
+            y=pd.concat([df_battery["body_battery_high"], df_battery["body_battery_low"].iloc[::-1]]),
             fill="toself",
             fillcolor="rgba(45,198,83,0.15)",
             line=dict(color="rgba(255,255,255,0)"),
@@ -607,10 +580,7 @@ with col_battery:
             xaxis=dict(showgrid=False, tickformat="%b %d"),
         )
         st.plotly_chart(fig_battery, use_container_width=True)
-        st.caption(
-            "Green = peak battery (after sleep).  Red dashed = daily low point. "
-            "A wide gap = heavy daily drain, typical on hard training days."
-        )
+        st.caption("Green = peak battery (after sleep). Red dashed = daily low. A wide gap = heavy daily drain.")
     else:
         st.info("No Body Battery data available for this period.")
 
@@ -634,7 +604,6 @@ if not df_recovery.empty:
     with col_rec_chart:
         fig_rec = go.Figure()
 
-        # Background bands for each score tier
         for y0, y1, color in [
             (75, 100, COLORS["success"]),
             (50, 75,  COLORS["primary"]),
@@ -643,7 +612,6 @@ if not df_recovery.empty:
         ]:
             fig_rec.add_hrect(y0=y0, y1=y1, fillcolor=color, opacity=0.05, line_width=0)
 
-        # Line + colored markers (marker color encodes the score value)
         fig_rec.add_trace(go.Scatter(
             x=df_recovery["date"],
             y=df_recovery["recovery_score"],
@@ -654,11 +622,8 @@ if not df_recovery.empty:
                 size=8,
                 color=df_recovery["recovery_score"],
                 colorscale=[
-                    [0.0, "#EF233C"],
-                    [0.4, "#F77F00"],
-                    [0.6, "#FFD60A"],
-                    [0.8, "#00B4D8"],
-                    [1.0, "#2DC653"],
+                    [0.0, "#EF233C"], [0.4, "#F77F00"],
+                    [0.6, "#FFD60A"], [0.8, "#00B4D8"], [1.0, "#2DC653"],
                 ],
                 cmin=0, cmax=100,
                 showscale=True,
@@ -699,7 +664,6 @@ if not df_recovery.empty:
 
         st.divider()
 
-        # Readiness distribution across the selected period
         if "training_readiness" in df.columns:
             readiness_counts = df["training_readiness"].value_counts()
             n_days = len(df)
@@ -712,8 +676,7 @@ if not df_recovery.empty:
                     f'<div style="margin-bottom:4px;">'
                     f'<span style="font-size:0.85rem;font-weight:600;color:{color};">'
                     f'{level.capitalize()}</span>'
-                    f'<span style="font-size:0.85rem;color:#6C757D;">'
-                    f" — {pct:.0f}% ({count}d)</span></div>",
+                    f'<span style="font-size:0.85rem;color:#6C757D;"> — {pct:.0f}% ({count}d)</span></div>',
                     unsafe_allow_html=True,
                 )
 else:
@@ -731,7 +694,6 @@ df_steps = df.dropna(subset=["total_steps"])
 
 if not df_steps.empty:
     fig_steps = go.Figure()
-
     fig_steps.add_trace(go.Bar(
         x=df_steps["date"],
         y=df_steps["total_steps"],
@@ -756,7 +718,6 @@ if not df_steps.empty:
             hovertemplate="7d avg: %{y:,.0f}<extra></extra>",
         ))
 
-    # 10,000-step reference line (WHO daily activity recommendation)
     fig_steps.add_hline(
         y=10000,
         line_dash="dot",
@@ -797,19 +758,12 @@ with st.expander("View raw daily health data", expanded=False):
         "total_steps", "recovery_score", "training_readiness",
     ]
     available = [c for c in display_cols if c in df.columns]
-
     df_raw = df[available].copy().sort_values("date", ascending=False)
     df_raw["date"] = df_raw["date"].dt.strftime("%b %d, %Y")
-
     st.dataframe(df_raw, use_container_width=True, hide_index=True)
 
     csv = df[available].to_csv(index=False)
-    st.download_button(
-        "Download as CSV",
-        data=csv,
-        file_name="health_trends.csv",
-        mime="text/csv",
-    )
+    st.download_button("Download as CSV", data=csv, file_name="health_trends.csv", mime="text/csv")
 
 # =============================================================================
 # FOOTER
@@ -817,7 +771,7 @@ with st.expander("View raw daily health data", expanded=False):
 
 st.markdown("---")
 st.caption(
-    "Data source: Garmin Connect API -> DuckDB (main_gold.mart_health_trends). "
+    "Data source: Garmin Connect API → DuckDB (main_gold.mart_health_trends). "
     "Recovery score combines sleep quality, RHR trend, HRV, stress, and Body Battery. "
     "HRV = Heart Rate Variability (ms).  RHR = Resting Heart Rate (bpm)."
 )

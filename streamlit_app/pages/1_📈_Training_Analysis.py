@@ -1,3 +1,5 @@
+# streamlit_app/pages/1_📈_Training_Analysis.py
+# Renumbered from 2 → 1 after merging the old Dashboard page into app.py.
 """
 Training Analysis Page - Running Performance Analyzer
 ======================================================
@@ -207,14 +209,11 @@ def load_training_summary():
         return pd.DataFrame()
 
     try:
-        # Use SELECT * first so we never miss columns that exist,
-        # then rename/derive what we need afterwards.
         query = """
             SELECT *
             FROM main_gold.mart_training_summary
             ORDER BY week_start_date ASC
         """
-        # Use fetchall() to avoid DuckDB Arrow serialization error ("field id: 100")
         result = conn.execute(query)
         columns = [desc[0] for desc in result.description]
         df = pd.DataFrame(result.fetchall(), columns=columns)
@@ -231,9 +230,6 @@ def load_training_summary():
             df["total_duration_hours"] = df["total_duration_minutes"] / 60.0
 
         # ── Compute total_runs (running activities only) per week ─────────────
-        # We cannot use total_activities from mart_training_summary because it
-        # counts ALL activity types (walks, cycling, etc.), not just runs.
-        # Instead, join with a per-week count from stg_garmin_activities.
         try:
             runs_per_week_query = """
                 SELECT
@@ -249,16 +245,11 @@ def load_training_summary():
             df = df.merge(df_runs, on="week_start_date", how="left")
             df["total_runs"] = df["total_runs"].fillna(0).astype(int)
         except Exception:
-            # Fallback: if stg_garmin_activities is unreachable, use total_activities
-            # as a rough approximation and flag it clearly
             if "total_activities" in df.columns:
                 df["total_runs"] = df["total_activities"]
-                df["_runs_count_approximate"] = True  # flag for UI warning
+                df["_runs_count_approximate"] = True
 
-        # Ensure the date column is a proper date type for Plotly
         df["week_start_date"] = pd.to_datetime(df["week_start_date"])
-
-        # Cache in session state
         st.session_state["training_summary"] = df
         return df
 
@@ -274,16 +265,6 @@ def load_activities():
     Load individual activity records from stg_garmin_activities.
     Used for pace scatter and recent activity detail.
 
-    Column name mapping (real schema vs initial assumptions):
-        avg_pace_min_km   ← was: avg_pace_min_per_km
-        avg_heart_rate    ← was: avg_heart_rate_bpm
-        max_heart_rate    ← was: max_heart_rate_bpm
-        elevation_gain    ← was: elevation_gain_m  (assumed, may vary)
-        duration_minutes  ← likely correct, but may be duration_seconds
-
-    Strategy: SELECT * and rename, so the rest of the page always uses
-    the canonical names avg_pace_min_per_km / avg_heart_rate_bpm.
-
     Returns:
         pd.DataFrame: Activity records (empty DataFrame on error)
     """
@@ -295,12 +276,6 @@ def load_activities():
         return pd.DataFrame()
 
     try:
-        # Fetch individual columns explicitly rather than SELECT * so we can
-        # apply the pace sanity check inline. The dbt VIEW stg_garmin_activities
-        # already has the CASE guard, but until `dbt run` is executed after the
-        # model was edited the VIEW definition on disk may be stale. Computing
-        # pace from duration/distance here is always safe and matches the
-        # load_recent_activities() approach in database.py.
         query = """
             SELECT
                 activity_id,
@@ -311,9 +286,6 @@ def load_activities():
                 distance_km,
                 duration_minutes,
                 moving_duration_minutes,
-                -- Sanity-checked pace: fallback to duration/distance if the
-                -- raw value is outside a realistic range (2-20 min/km).
-                -- This guards against Garmin API corruption (e.g. HR in pace field).
                 CASE
                     WHEN avg_pace_min_km >= 2.0
                      AND avg_pace_min_km <= 20.0  THEN avg_pace_min_km
@@ -341,12 +313,10 @@ def load_activities():
             WHERE activity_type = 'running'
             ORDER BY activity_date ASC
         """
-        # Use fetchall() to avoid DuckDB Arrow serialization error ("field id: 100")
         result = conn.execute(query)
         columns = [desc[0] for desc in result.description]
         df = pd.DataFrame(result.fetchall(), columns=columns)
 
-        # ── Normalise column names ────────────────────────────────────────────
         rename_map = {
             "avg_pace_min_km":  "avg_pace_min_per_km",
             "avg_heart_rate":   "avg_heart_rate_bpm",
@@ -355,12 +325,10 @@ def load_activities():
         }
         df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
 
-        # If duration is stored in seconds, convert to minutes
         if "duration_seconds" in df.columns and "duration_minutes" not in df.columns:
             df["duration_minutes"] = df["duration_seconds"] / 60.0
 
         df["activity_date"] = pd.to_datetime(df["activity_date"])
-
         st.session_state["activities_detail"] = df
         return df
 
@@ -384,14 +352,12 @@ def clear_session_cache():
 with st.sidebar:
     st.header("⚙️ Filters")
 
-    # Refresh button
     if st.button("🔄 Refresh data", use_container_width=True):
         clear_session_cache()
         st.rerun()
 
     st.divider()
 
-    # --- Date range ---
     st.subheader("📅 Period")
 
     period_option = st.radio(
@@ -417,7 +383,7 @@ with st.sidebar:
     elif period_option == "All time":
         date_start = pd.Timestamp("2000-01-01")
         date_end   = today
-    else:  # Custom
+    else:
         col_a, col_b = st.columns(2)
         with col_a:
             date_start = pd.Timestamp(
@@ -430,7 +396,6 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Smoothing option for rolling avg ---
     st.subheader("📊 Chart options")
     show_rolling = st.toggle("Show 4-week rolling avg", value=True)
     show_targets = st.toggle("Show effort level on scatter", value=True)
@@ -442,14 +407,6 @@ with st.sidebar:
 st.title("📈 Training Analysis")
 st.caption("Weekly training load, pace progression, and heart rate zone distribution.")
 
-# ── Data quality notice ───────────────────────────────────────────────────────
-# mart_training_summary may aggregate ALL activity types (runs, walks, cycling).
-# If your dbt mart filters to running only, you can remove this notice.
-# If not, metrics like avg_pace and total_distance may include non-running data.
-# Data scope notice removed — mart_training_summary.sql confirmed to filter
-# activity_type = 'running' in both weeks_spine and weekly_aggregates CTEs.
-
-# ── Schema debug helper (remove or collapse once schema is confirmed stable) ──
 with st.expander("🔧 Debug: inspect real column names", expanded=False):
     st.markdown("Use this to verify exact column names in your DuckDB tables.")
     col_d1, col_d2 = st.columns(2)
@@ -475,7 +432,6 @@ with st.expander("🔧 Debug: inspect real column names", expanded=False):
 df_summary  = load_training_summary()
 df_activity = load_activities()
 
-# Apply date filter
 if not df_summary.empty:
     mask_s = (df_summary["week_start_date"] >= date_start) & \
              (df_summary["week_start_date"] <= date_end)
@@ -490,11 +446,10 @@ if not df_activity.empty:
 else:
     df_activity_filtered = df_activity.copy()
 
-# --- No data guard ---
 if df_summary_filtered.empty and df_activity_filtered.empty:
     st.markdown("""
     <div class="info-banner">
-        ℹ️ No training data found for the selected period. 
+        ℹ️ No training data found for the selected period.
         Try a wider date range or sync your Garmin data first.
     </div>
     """, unsafe_allow_html=True)
@@ -508,21 +463,17 @@ st.markdown('<p class="section-header">📊 Period Summary</p>', unsafe_allow_ht
 
 if not df_summary_filtered.empty:
 
-    # Aggregate totals across the filtered period
-    total_runs        = int(df_summary_filtered["total_runs"].sum())
-    total_distance    = df_summary_filtered["total_distance_km"].sum()
-    total_hours       = df_summary_filtered["total_duration_hours"].sum()
-    avg_weekly_dist   = df_summary_filtered["total_distance_km"].mean()
-    avg_hr            = df_summary_filtered["avg_heart_rate_bpm"].mean()
-    total_load        = df_summary_filtered["total_training_load"].sum()
+    total_runs      = int(df_summary_filtered["total_runs"].sum())
+    total_distance  = df_summary_filtered["total_distance_km"].sum()
+    total_hours     = df_summary_filtered["total_duration_hours"].sum()
+    avg_weekly_dist = df_summary_filtered["total_distance_km"].mean()
+    total_load      = df_summary_filtered["total_training_load"].sum()
 
-    # Compare first half vs second half of the period for delta
     mid = len(df_summary_filtered) // 2
     if mid > 0:
         dist_first  = df_summary_filtered.iloc[:mid]["total_distance_km"].mean()
         dist_second = df_summary_filtered.iloc[mid:]["total_distance_km"].mean()
         dist_delta  = ((dist_second - dist_first) / dist_first * 100) if dist_first > 0 else 0
-
         load_first  = df_summary_filtered.iloc[:mid]["total_training_load"].mean()
         load_second = df_summary_filtered.iloc[mid:]["total_training_load"].mean()
         load_delta  = ((load_second - load_first) / load_first * 100) if load_first > 0 else 0
@@ -531,31 +482,20 @@ if not df_summary_filtered.empty:
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
-    # Warn if total_runs is an approximation (fallback was triggered)
-    if df_summary_filtered.get("_runs_count_approximate", pd.Series([False])).any():
-        st.warning(
-            "⚠️ Run count is approximate — includes all activity types. "
-            "Check that `stg_garmin_activities` is accessible."
-        )
-
     with col1:
         st.metric("🏃 Total Runs", f"{total_runs}")
-
     with col2:
         st.metric(
             "📏 Total Distance",
             f"{total_distance:.0f} km",
             delta=f"{dist_delta:+.1f}% vs first half" if mid > 0 else None,
         )
-
     with col3:
         hours = int(total_hours)
         minutes = int((total_hours - hours) * 60)
         st.metric("⏱ Total Time", f"{hours}h {minutes:02d}m")
-
     with col4:
         st.metric("📅 Avg/Week", f"{avg_weekly_dist:.1f} km")
-
     with col5:
         st.metric(
             "⚡ Total Load",
@@ -576,7 +516,6 @@ if not df_summary_filtered.empty:
 
     fig_load = go.Figure()
 
-    # Bar: weekly training load
     fig_load.add_trace(go.Bar(
         x=df_summary_filtered["week_start_date"],
         y=df_summary_filtered["total_training_load"],
@@ -589,8 +528,6 @@ if not df_summary_filtered.empty:
         ),
     ))
 
-    # Line: 4-week rolling average (optional)
-    # Real column name: rolling_4wk_avg_training_load (verified from mart schema)
     if show_rolling and "rolling_4wk_avg_training_load" in df_summary_filtered.columns:
         fig_load.add_trace(go.Scatter(
             x=df_summary_filtered["week_start_date"],
@@ -610,22 +547,13 @@ if not df_summary_filtered.empty:
         plot_bgcolor=COLORS["card_bg"],
         paper_bgcolor=COLORS["card_bg"],
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis=dict(
-            title=None,
-            showgrid=False,
-            tickformat="%b %Y",
-        ),
-        yaxis=dict(
-            title="TRIMP (Training Impulse)",
-            gridcolor="#E8ECF0",
-            zeroline=False,
-        ),
+        xaxis=dict(title=None, showgrid=False, tickformat="%b %Y"),
+        yaxis=dict(title="TRIMP (Training Impulse)", gridcolor="#E8ECF0", zeroline=False),
         hovermode="x unified",
         bargap=0.3,
     )
 
     st.plotly_chart(fig_load, use_container_width=True)
-
     st.caption(
         "TRIMP (Training Impulse) combines workout duration and heart rate intensity. "
         "A steady load trend (blue line) signals consistent training without spikes."
@@ -644,11 +572,8 @@ st.markdown('<p class="section-header">📏 Distance & Pace Progression</p>', un
 
 if not df_summary_filtered.empty:
 
-    fig_dist = make_subplots(
-        specs=[[{"secondary_y": True}]],
-    )
+    fig_dist = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # Bar: weekly distance
     fig_dist.add_trace(
         go.Bar(
             x=df_summary_filtered["week_start_date"],
@@ -664,8 +589,6 @@ if not df_summary_filtered.empty:
         secondary_y=False,
     )
 
-    # Rolling distance average
-    # Real column name: rolling_4wk_avg_distance_km (verified from mart schema)
     if show_rolling and "rolling_4wk_avg_distance_km" in df_summary_filtered.columns:
         fig_dist.add_trace(
             go.Scatter(
@@ -682,7 +605,6 @@ if not df_summary_filtered.empty:
             secondary_y=False,
         )
 
-    # Line: average pace (plotted on right axis, inverted so slower = lower = worse)
     if "avg_pace_min_per_km" in df_summary_filtered.columns:
         df_pace = df_summary_filtered.dropna(subset=["avg_pace_min_per_km"])
         if not df_pace.empty:
@@ -711,22 +633,9 @@ if not df_summary_filtered.empty:
         hovermode="x unified",
         bargap=0.3,
     )
-
     fig_dist.update_xaxes(showgrid=False, tickformat="%b %Y")
-    fig_dist.update_yaxes(
-        title_text="Distance (km)",
-        gridcolor="#E8ECF0",
-        zeroline=False,
-        secondary_y=False,
-    )
-    fig_dist.update_yaxes(
-        title_text="Pace (min/km) — lower = faster",
-        secondary_y=True,
-        showgrid=False,
-        # Invert: lower pace value = faster = better = should appear higher on axis
-        # We invert the range so the axis reads intuitively
-        autorange="reversed",
-    )
+    fig_dist.update_yaxes(title_text="Distance (km)", gridcolor="#E8ECF0", zeroline=False, secondary_y=False)
+    fig_dist.update_yaxes(title_text="Pace (min/km) — lower = faster", secondary_y=True, showgrid=False, autorange="reversed")
 
     st.plotly_chart(fig_dist, use_container_width=True)
     st.caption(
@@ -745,22 +654,13 @@ st.divider()
 
 st.markdown('<p class="section-header">❤️ Heart Rate Zone Distribution</p>', unsafe_allow_html=True)
 
-# Check if zone columns are present — try both naming conventions
-# mart_training_summary may use zone_1_pct OR hr_zone_1_pct OR pct_zone_1
 def _find_zone_cols(df: pd.DataFrame) -> list:
     """
-    Try to find heart rate zone percentage columns in the DataFrame.
-    Handles multiple naming conventions from different dbt versions.
-    Returns list of 5 column names in Z1–Z5 order, or empty list if not found.
-
-    Real column names confirmed from mart_training_summary schema:
-        pct_zone1_easy, pct_zone2_moderate, pct_zone3_tempo,
-        pct_zone4_threshold, pct_zone5_max
+    Try multiple naming conventions to locate HR zone percentage columns.
+    Returns 5 column names in Z1–Z5 order, or an empty list if not found.
     """
     candidates = [
-        # Confirmed real names from mart_training_summary (checked Feb 2026)
         ["pct_zone1_easy", "pct_zone2_moderate", "pct_zone3_tempo", "pct_zone4_threshold", "pct_zone5_max"],
-        # Legacy / alternative naming patterns kept as fallback
         ["zone_1_pct", "zone_2_pct", "zone_3_pct", "zone_4_pct", "zone_5_pct"],
         ["hr_zone_1_pct", "hr_zone_2_pct", "hr_zone_3_pct", "hr_zone_4_pct", "hr_zone_5_pct"],
         ["pct_zone_1", "pct_zone_2", "pct_zone_3", "pct_zone_4", "pct_zone_5"],
@@ -778,7 +678,6 @@ if has_zones:
     col_chart, col_legend = st.columns([2, 1])
 
     with col_chart:
-        # Average zone percentages across the selected period
         avg_zones = {
             "Zone 1 – Easy":      df_summary_filtered[zone_cols[0]].mean(),
             "Zone 2 – Aerobic":   df_summary_filtered[zone_cols[1]].mean(),
@@ -823,9 +722,8 @@ if has_zones:
                 f' {zone_name.split("–")[1].strip()} — {zone_info["range"]}',
                 unsafe_allow_html=True,
             )
-            st.markdown("")  # spacing
+            st.markdown("")
 
-        # Quick interpretation tip
         st.divider()
         z1 = df_summary_filtered[zone_cols[0]].mean()
         z2 = df_summary_filtered[zone_cols[1]].mean()
@@ -853,8 +751,6 @@ st.markdown('<p class="section-header">🔍 Activity Detail: Distance vs Duratio
 
 if not df_activity_filtered.empty:
 
-    # Color by effort level (sidebar toggle) or pace zone if effort not available
-    # show_targets controls whether to color by effort_level (True) or a neutral single color (False)
     if show_targets and "effort_level" in df_activity_filtered.columns:
         color_col   = "effort_level"
         color_label = "Effort Level"
@@ -883,11 +779,11 @@ if not df_activity_filtered.empty:
             color_col: True,
         },
         labels={
-            "distance_km":        "Distance (km)",
-            "duration_minutes":   "Duration (min)",
+            "distance_km":         "Distance (km)",
+            "duration_minutes":    "Duration (min)",
             "avg_pace_min_per_km": "Avg Pace (min/km)",
-            "avg_heart_rate_bpm": "Avg HR (bpm)",
-            color_col:            color_label,
+            "avg_heart_rate_bpm":  "Avg HR (bpm)",
+            color_col:             color_label,
         },
         color_discrete_sequence=px.colors.qualitative.Safe,
     )
@@ -904,7 +800,7 @@ if not df_activity_filtered.empty:
 
     st.plotly_chart(fig_scatter, use_container_width=True)
     st.caption(
-        f"Each dot = one run. Size = training load. Color = {color_label.lower()}. "
+        f"Each dot = one run. Size = training load. Color = {color_label.lower() if color_label else 'none'}. "
         "Points should form a consistent diagonal band — outliers may indicate unusual conditions."
     )
 
@@ -916,9 +812,6 @@ st.divider()
 # =============================================================================
 # SECTION 5b – WEATHER ANALYSIS
 # =============================================================================
-# Weather data is stored in the bronze table (raw_garmin_activities).
-# We load it separately via load_weather_data() which also normalises
-# the temperature (some values from the Garmin API come in Fahrenheit).
 
 if "weather_data" not in st.session_state:
     from utils.database import load_weather_data
@@ -929,7 +822,6 @@ if "weather_data" not in st.session_state:
 
 df_weather_all = st.session_state["weather_data"]
 
-# Apply the same date filter as the rest of the page
 if not df_weather_all.empty:
     df_weather = df_weather_all[
         (df_weather_all["activity_date"] >= date_start) &
@@ -943,11 +835,10 @@ if not df_weather.empty:
     st.divider()
     st.markdown('<p class="section-header">☀️ Weather & Performance</p>', unsafe_allow_html=True)
 
-    # ---- Summary metrics row ------------------------------------------------
-    avg_temp   = df_weather["temp_c"].mean()
-    avg_humid  = df_weather["humidity_pct"].mean()
-    avg_wind   = df_weather["wind_kmh"].mean()
-    n_weather  = len(df_weather)
+    avg_temp  = df_weather["temp_c"].mean()
+    avg_humid = df_weather["humidity_pct"].mean()
+    avg_wind  = df_weather["wind_kmh"].mean()
+    n_weather = len(df_weather)
 
     wc1, wc2, wc3, wc4 = st.columns(4)
     with wc1:
@@ -961,7 +852,6 @@ if not df_weather.empty:
 
     st.markdown("")
 
-    # ---- Temperature vs Pace scatter ----------------------------------------
     wcol_left, wcol_right = st.columns(2)
 
     with wcol_left:
@@ -978,8 +868,8 @@ if not df_weather.empty:
             color_continuous_scale="Blues",
             hover_name="activity_name",
             hover_data={
-                "activity_date": "|%b %d, %Y",
-                "temp_c":         ":.1f",
+                "activity_date":   "|%b %d, %Y",
+                "temp_c":          ":.1f",
                 "avg_pace_min_km": ":.2f",
                 "humidity_pct":    ":.0f",
                 "wind_kmh":        ":.1f",
@@ -992,16 +882,12 @@ if not df_weather.empty:
             },
         )
 
-        # Add trend line manually using a simple linear regression
-        # This avoids needing scipy — we use numpy which is always available
         weather_clean = df_weather.dropna(subset=["temp_c", "avg_pace_min_km"])
         if len(weather_clean) >= 3:
             import numpy as np
             z = np.polyfit(weather_clean["temp_c"], weather_clean["avg_pace_min_km"], 1)
             p = np.poly1d(z)
-            x_range = pd.Series(
-                sorted([weather_clean["temp_c"].min(), weather_clean["temp_c"].max()])
-            )
+            x_range = pd.Series(sorted([weather_clean["temp_c"].min(), weather_clean["temp_c"].max()]))
             fig_temp_pace.add_scatter(
                 x=x_range,
                 y=p(x_range),
@@ -1036,12 +922,12 @@ if not df_weather.empty:
             color_continuous_scale="RdYlBu_r",
             hover_name="activity_name",
             hover_data={
-                "activity_date": "|%b %d, %Y",
-                "wind_kmh":       ":.1f",
+                "activity_date":   "|%b %d, %Y",
+                "wind_kmh":        ":.1f",
                 "avg_pace_min_km": ":.2f",
-                "temp_c":         ":.1f",
-                "humidity_pct":   ":.0f",
-                "distance_km":    False,
+                "temp_c":          ":.1f",
+                "humidity_pct":    ":.0f",
+                "distance_km":     False,
             },
             labels={
                 "wind_kmh":        "Wind Speed (km/h)",
@@ -1061,7 +947,6 @@ if not df_weather.empty:
         )
         st.plotly_chart(fig_wind_pace, use_container_width=True)
 
-    # ---- Temperature distribution over time ---------------------------------
     st.markdown("**📅 Temperature Over Time**")
 
     fig_temp_time = px.scatter(
@@ -1074,12 +959,12 @@ if not df_weather.empty:
         color_continuous_scale="RdYlBu_r",
         hover_name="activity_name",
         hover_data={
-            "activity_date": "|%b %d, %Y",
-            "temp_c":         ":.1f",
-            "humidity_pct":   ":.0f",
-            "wind_kmh":       ":.1f",
+            "activity_date":   "|%b %d, %Y",
+            "temp_c":          ":.1f",
+            "humidity_pct":    ":.0f",
+            "wind_kmh":        ":.1f",
             "avg_pace_min_km": ":.2f",
-            "distance_km":    False,
+            "distance_km":     False,
         },
         labels={
             "activity_date":   "Date",
@@ -1110,34 +995,22 @@ with st.expander("🗃️ View raw weekly data", expanded=False):
 
     if not df_summary_filtered.empty:
 
-        # Format for display
         display_df = df_summary_filtered.copy()
         display_df["week_start_date"] = display_df["week_start_date"].dt.strftime("%b %d, %Y")
 
-        # Round numeric columns
         round_cols = {
-            "total_distance_km":         1,
-            "total_duration_hours":       2,
-            "avg_pace_min_per_km":        2,
-            "avg_heart_rate_bpm":         0,
-            "total_training_load":        0,
-            "rolling_4wk_avg_distance":  1,
-            "rolling_4wk_avg_load":      0,
-            "rolling_4wk_avg_pace":      2,
-            "zone_1_pct": 1, "zone_2_pct": 1,
-            "zone_3_pct": 1, "zone_4_pct": 1, "zone_5_pct": 1,
+            "total_distance_km":    1,
+            "total_duration_hours": 2,
+            "avg_pace_min_per_km":  2,
+            "avg_heart_rate_bpm":   0,
+            "total_training_load":  0,
         }
         for col, decimals in round_cols.items():
             if col in display_df.columns:
                 display_df[col] = display_df[col].round(decimals)
 
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # CSV download button
         csv = df_summary_filtered.to_csv(index=False)
         st.download_button(
             label="⬇️ Download as CSV",
