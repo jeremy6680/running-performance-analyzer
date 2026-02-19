@@ -228,14 +228,8 @@ with st.sidebar:
 
     st.divider()
 
-    st.subheader("📅 Year")
-    year_filter = st.multiselect(
-        "Race year",
-        options=[],
-        default=[],
-        placeholder="All years",
-        key="year_filter_placeholder",
-    )
+    # Year filter is populated below once race data is loaded
+    # (options depend on which years exist in the data)
 
 # =============================================================================
 # PAGE HEADER
@@ -298,15 +292,15 @@ if not df_calendar.empty:
 
         for i, (_, row) in enumerate(df_upcoming.iterrows()):
             with cols[i % min(len(df_upcoming), 4)]:
-                days_left    = int(row.get("days_until_race", 0))
-                race_date    = row["event_date"].strftime("%b %d, %Y")
-                title        = row.get("title") or "Race"
-                dist_cat     = row.get("race_distance_category") or ""
-                location     = row.get("location") or ""
-                race_url     = row.get("url") or ""
-                goal_time    = row.get("goal_time") or ""
-                goal_note    = row.get("goal_notes") or ""
-                dist_icon    = dist_icons.get(dist_cat, "🏁")
+                days_left = int(row.get("days_until_race", 0))
+                race_date = row["event_date"].strftime("%b %d, %Y")
+                title     = row.get("title") or "Race"
+                dist_cat  = row.get("race_distance_category") or ""
+                location  = row.get("location") or ""
+                race_url  = row.get("url") or ""
+                goal_time = row.get("goal_time") or ""
+                goal_note = row.get("goal_notes") or ""
+                dist_icon = dist_icons.get(dist_cat, "🏁")
 
                 border_color = (
                     "#EF233C" if days_left <= 14
@@ -315,6 +309,10 @@ if not df_calendar.empty:
                 )
                 countdown_label = "TODAY" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}"
 
+                # Pre-build every optional HTML block as a plain string before
+                # injecting into the card f-string. Nested f-string expressions
+                # inside st.markdown() can be rendered as escaped text by
+                # Streamlit rather than as actual HTML.
                 goal_block = (
                     f'<div style="margin-top:8px; background:#EBF5FB; border-radius:6px; padding:6px 8px;">'
                     f'<span style="font-size:0.75rem; color:#0077B6; font-weight:700;">🎯 Goal: {goal_time}</span>'
@@ -322,11 +320,18 @@ if not df_calendar.empty:
                     + "</div>"
                 ) if goal_time else ""
 
-                link_html = (
-                    f'<a href="{race_url}" target="_blank" style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
+                location_block = (
+                    f'<div style="font-size:0.78rem; color:#6C757D; text-align:center; margin-top:2px;">'
+                    f'📍 {location}</div>'
+                ) if location else ""
+
+                link_block = (
+                    f'<div style="text-align:center; margin-top:8px;">'
+                    f'<a href="{race_url}" style="font-size:0.75rem; color:#0077B6;">'
+                    f'🔗 Race info</a></div>'
                 ) if race_url else ""
 
-                st.markdown(f"""
+                card_html = f"""
                 <div style="background:#FFFFFF; border:1px solid #E0EAF5;
                             border-radius:12px; padding:16px 14px;
                             border-top:4px solid {border_color};
@@ -342,11 +347,12 @@ if not df_calendar.empty:
                     <div style="font-size:1rem; font-weight:700; color:#1A1A2E;
                                 text-align:center; margin:6px 0 4px;">{title}</div>
                     <div style="font-size:0.8rem; color:#6C757D; text-align:center;">📅 {race_date}</div>
-                    {f'<div style="font-size:0.78rem; color:#6C757D; text-align:center; margin-top:2px;">📍 {location}</div>' if location else ''}
+                    {location_block}
                     {goal_block}
-                    {f'<div style="text-align:center; margin-top:8px;">{link_html}</div>' if link_html else ''}
+                    {link_block}
                 </div>
-                """, unsafe_allow_html=True)
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
 
     st.divider()
 
@@ -618,6 +624,12 @@ if not goal_races.empty:
             else:
                 border_color, icon = "#EF233C", "❌"
 
+            # Pre-build optional block to avoid nested f-string in st.markdown()
+            notes_block = (
+                f'<div style="font-size:0.78rem; color:#6C757D; '
+                f'margin-top:0.6rem; font-style:italic;">{notes}</div>'
+            ) if notes else ""
+
             st.markdown(f"""
             <div style="background:#FFF; border:1px solid #E8ECF0; border-radius:10px;
                         padding:1rem 1.2rem; border-left:5px solid {border_color};">
@@ -641,7 +653,7 @@ if not goal_races.empty:
                         <div style="font-size:1.2rem; font-weight:700; color:{delta_color};">{delta_str}</div>
                     </div>
                 </div>
-                {f'<div style="font-size:0.78rem; color:#6C757D; margin-top:0.6rem; font-style:italic;">{notes}</div>' if notes else ''}
+                {notes_block}
             </div>
             """, unsafe_allow_html=True)
             st.markdown("")

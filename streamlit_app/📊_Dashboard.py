@@ -391,13 +391,21 @@ def render_upcoming_races(df_calendar: pd.DataFrame) -> None:
             dist_icon = dist_icons.get(dist_cat, "🏁")
             countdown_label = "TODAY" if days_left == 0 else f"In {days_left} day{'s' if days_left != 1 else ''}"
 
-            link_html = (
-                f'<a href="{race_url}" target="_blank" '
-                f'style="font-size:0.75rem; color:#0077B6;">🔗 Race info</a>'
-                if race_url else ""
-            )
+            # Build optional HTML blocks as plain strings first — nested
+            # f-string conditionals inside st.markdown() f-strings can be
+            # rendered as raw text by Streamlit instead of as HTML.
+            location_block = (
+                f'<div style="font-size:0.78rem; color:#6C757D; text-align:center; margin-top:2px;">'
+                f'📍 {location}</div>'
+            ) if location else ""
 
-            st.markdown(f"""
+            link_block = (
+                f'<div style="text-align:center; margin-top:8px;">'
+                f'<a href="{race_url}" target="_blank" style="font-size:0.75rem; color:#0077B6;">'
+                f'🔗 Race info</a></div>'
+            ) if race_url else ""
+
+            card_html = f"""
             <div style="background:#FFFFFF; border:1px solid #E0EAF5;
                         border-radius:12px; padding:16px 14px;
                         border-top:4px solid {badge_color};
@@ -413,10 +421,11 @@ def render_upcoming_races(df_calendar: pd.DataFrame) -> None:
                 <div style="font-size:0.95rem; font-weight:700; color:#1A1A2E;
                             text-align:center; margin:6px 0 4px;">{title}</div>
                 <div style="font-size:0.8rem; color:#6C757D; text-align:center;">📅 {race_date}</div>
-                {f'<div style="font-size:0.78rem; color:#6C757D; text-align:center; margin-top:2px;">📍 {location}</div>' if location else ''}
-                {f'<div style="text-align:center; margin-top:8px;">{link_html}</div>' if link_html else ''}
+                {location_block}
+                {link_block}
             </div>
-            """, unsafe_allow_html=True)
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
 
 
 # =============================================================================
