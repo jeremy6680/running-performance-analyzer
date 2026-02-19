@@ -85,7 +85,14 @@ def _query(sql: str) -> pd.DataFrame:
         )
 
     with duckdb.connect(str(DB_PATH), read_only=True) as conn:
-        return conn.execute(sql).df()
+        # Use fetchall() + column names instead of .df() to avoid the DuckDB
+        # Arrow serialization error ("field id: 100") that occurs with certain
+        # column types (BOOLEAN, HUGEINT, etc.) in DuckDB 1.x + pyarrow.
+        # fetchall() returns plain Python objects; we build the DataFrame manually.
+        result = conn.execute(sql)
+        columns = [desc[0] for desc in result.description]
+        rows = result.fetchall()
+        return pd.DataFrame(rows, columns=columns)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +185,16 @@ def load_weather_data() -> pd.DataFrame:
             r.activity_type,
             r.distance_km,
             r.duration_minutes,
-            r.avg_pace_min_km,
+            -- Apply the same sanity check as in stg_garmin_activities.sql:
+            -- the Garmin API occasionally stores avg_heart_rate in the pace
+            -- field (observed Feb 8/11/13 2026). Any value outside 2-20 min/km
+            -- is replaced by the reliable duration/distance computation.
+            CASE
+                WHEN r.avg_pace_min_km >= 2.0
+                 AND r.avg_pace_min_km <= 20.0 THEN r.avg_pace_min_km
+                WHEN r.distance_km > 0         THEN ROUND(r.duration_minutes / r.distance_km, 3)
+                ELSE NULL
+            END AS avg_pace_min_km,
             r.avg_heart_rate,
             -- Temperature is stored in Celsius (converted from Fahrenheit during ingestion)
             ROUND(r.weather_temp_c, 1) AS temp_c,

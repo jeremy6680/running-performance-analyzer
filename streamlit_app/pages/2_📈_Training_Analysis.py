@@ -214,7 +214,10 @@ def load_training_summary():
             FROM main_gold.mart_training_summary
             ORDER BY week_start_date ASC
         """
-        df = conn.execute(query).df()
+        # Use fetchall() to avoid DuckDB Arrow serialization error ("field id: 100")
+        result = conn.execute(query)
+        columns = [desc[0] for desc in result.description]
+        df = pd.DataFrame(result.fetchall(), columns=columns)
 
         # ── Normalise column names to what the rest of the page expects ──────
         rename_map = {
@@ -240,7 +243,8 @@ def load_training_summary():
                 WHERE activity_type = 'running'
                 GROUP BY 1
             """
-            df_runs = conn.execute(runs_per_week_query).df()
+            r2 = conn.execute(runs_per_week_query)
+            df_runs = pd.DataFrame(r2.fetchall(), columns=[d[0] for d in r2.description])
             df_runs["week_start_date"] = pd.to_datetime(df_runs["week_start_date"])
             df = df.merge(df_runs, on="week_start_date", how="left")
             df["total_runs"] = df["total_runs"].fillna(0).astype(int)
@@ -291,14 +295,56 @@ def load_activities():
         return pd.DataFrame()
 
     try:
-        # Fetch all columns — filter for running activities
+        # Fetch individual columns explicitly rather than SELECT * so we can
+        # apply the pace sanity check inline. The dbt VIEW stg_garmin_activities
+        # already has the CASE guard, but until `dbt run` is executed after the
+        # model was edited the VIEW definition on disk may be stale. Computing
+        # pace from duration/distance here is always safe and matches the
+        # load_recent_activities() approach in database.py.
         query = """
-            SELECT *
+            SELECT
+                activity_id,
+                activity_name,
+                activity_date,
+                activity_type,
+                event_type,
+                distance_km,
+                duration_minutes,
+                moving_duration_minutes,
+                -- Sanity-checked pace: fallback to duration/distance if the
+                -- raw value is outside a realistic range (2-20 min/km).
+                -- This guards against Garmin API corruption (e.g. HR in pace field).
+                CASE
+                    WHEN avg_pace_min_km >= 2.0
+                     AND avg_pace_min_km <= 20.0  THEN avg_pace_min_km
+                    WHEN distance_km > 0           THEN ROUND(duration_minutes / distance_km, 3)
+                    ELSE NULL
+                END AS avg_pace_min_km,
+                avg_speed_kmh,
+                avg_heart_rate,
+                max_heart_rate,
+                elevation_gain_m,
+                elevation_loss_m,
+                calories,
+                training_load,
+                effort_level,
+                pace_zone,
+                hr_zone,
+                is_race,
+                race_distance_category,
+                terrain_type,
+                time_of_day,
+                is_weekend,
+                has_data_quality_issues,
+                has_unrealistic_pace
             FROM main_silver.stg_garmin_activities
             WHERE activity_type = 'running'
             ORDER BY activity_date ASC
         """
-        df = conn.execute(query).df()
+        # Use fetchall() to avoid DuckDB Arrow serialization error ("field id: 100")
+        result = conn.execute(query)
+        columns = [desc[0] for desc in result.description]
+        df = pd.DataFrame(result.fetchall(), columns=columns)
 
         # ── Normalise column names ────────────────────────────────────────────
         rename_map = {
