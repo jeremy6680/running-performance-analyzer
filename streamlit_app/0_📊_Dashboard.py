@@ -18,7 +18,7 @@ Page structure (top to bottom):
     10. Recent activities     → formatted table with weather context
 
 Run with:
-    streamlit run streamlit_app/app.py
+    streamlit run "streamlit_app/0_📊_Dashboard.py"
 
 Technical notes:
     - st.session_state replaces @st.cache_data (DuckDB 1.4.4 serialization fix)

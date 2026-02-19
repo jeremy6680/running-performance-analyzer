@@ -92,7 +92,7 @@ mart_race_performance:    race_date, finish_time_formatted (H:MM:SS), is_persona
   - `components/charts.py` — reusable Plotly chart components
 
 #### Pages Built
-- [x] `app.py` — home page
+- [x] `0_📊_Dashboard.py` — home page
   - Gradient hero title, data range badge
   - All-time stats row (total distance, runs, time, PRs)
   - Today's recovery status with readiness badge
@@ -132,7 +132,7 @@ mart_race_performance:    race_date, finish_time_formatted (H:MM:SS), is_persona
   `rolling_4wk_avg_distance_km` / `rolling_4wk_avg_training_load` (real mart column names).
   Also renamed `Show effort annotations` → `Show effort level on scatter` and wired it to
   actually toggle the scatter colour column.
-- `app.py` — duplicate 🏃 emoji in H1 title removed (`APP_TITLE` already contains the emoji;
+- `0_📊_Dashboard.py` — duplicate 🏃 emoji in H1 title removed (`APP_TITLE` already contains the emoji;
   the HTML template was prepending a second one).
 - `pages/4_❤️_Health.py` — period filter appeared broken because all date ranges returned
   the same data. Root cause: health data only starts Feb 8, 2026. Added a blue info banner
@@ -247,7 +247,7 @@ running-performance-analyzer/
 │   └── tests/
 │
 ├── streamlit_app/                    ✅ COMPLETE
-│   ├── app.py                        ✅ Home page (light theme)
+│   ├── 0_📊_Dashboard.py             ✅ Home page (light theme)
 │   ├── pages/
 │   │   ├── 1_📊_Dashboard.py         ✅
 │   │   ├── 2_📈_Training_Analysis.py ✅
@@ -291,7 +291,7 @@ python -m ingestion.ingest_garmin --days 7
 cd dbt_project && dbt run && cd ..
 
 # Launch dashboard
-streamlit run streamlit_app/app.py
+streamlit run "streamlit_app/0_📊_Dashboard.py"
 # → http://localhost:8501
 ```
 

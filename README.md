@@ -144,7 +144,7 @@ running-performance-analyzer/
 ├── dbt_project/                # dbt models and tests
 ├── ingestion/                  # API connectors (Garmin, Strava)
 ├── ai_engine/                  # LLM analyzer and prompts
-├── streamlit_app/              # Web dashboard
+├── streamlit_app/              # Web dashboard (entry: 0_📊_Dashboard.py)
 ├── data/                       # DuckDB database
 ├── notebooks/                  # Jupyter notebooks for exploration
 ├── tests/                      # Unit and integration tests

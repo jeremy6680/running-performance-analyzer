@@ -113,7 +113,7 @@ docker-compose ps
 
 # Accéder aux UIs
 # - Airflow : http://localhost:8080 (admin / ton_mot_de_passe)
-# - Streamlit : http://localhost:8501 (va échouer car pas encore de code app.py)
+# - Streamlit : http://localhost:8501 (va échouer car pas encore de code 0_📊_Dashboard.py)
 ```
 
 **Si tu rencontres des problèmes Docker** :

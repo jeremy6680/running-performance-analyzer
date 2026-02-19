@@ -67,7 +67,7 @@ running-performance-analyzer/
 │       └── running_knowledge_base/
 │
 ├── streamlit_app/                     # Application web Streamlit
-│   ├── app.py                         # Page d'accueil
+│   ├── 0_📊_Dashboard.py              # Page d'accueil (entry point)
 │   ├── pages/                         # Pages multi-pages Streamlit
 │   │   ├── 1_📊_Dashboard.py          # Vue d'ensemble performances
 │   │   ├── 2_📈_Training_Analysis.py  # Analyses entraînements

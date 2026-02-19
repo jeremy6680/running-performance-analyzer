@@ -225,7 +225,7 @@ services:
     ports:
       - "${STREAMLIT_PORT:-8501}:8501"
     
-    command: streamlit run streamlit_app/app.py
+    command: streamlit run "streamlit_app/0_📊_Dashboard.py"
     
     restart: unless-stopped
     

@@ -1,5 +1,5 @@
 # streamlit_app/pages/2_🏃_Race_Performance.py
-# Renumbered from 3 → 2 after merging the old Dashboard page into app.py.
+# Renumbered from 3 → 2 after merging the old Dashboard page into 0_📊_Dashboard.py.
 """
 Race Performance Page - Running Performance Analyzer
 =====================================================
