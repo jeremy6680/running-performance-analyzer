@@ -28,9 +28,7 @@ from loguru import logger
 # This ensures ANTHROPIC_API_KEY is available regardless of how the app is launched.
 # override=False means existing shell env variables take precedence.
 _env_path = Path(__file__).resolve().parents[1] / ".env"
-_loaded = load_dotenv(_env_path, override=False)
-# Log at import time so you can confirm the .env path and whether it was found
-logger.debug(f"load_dotenv: path={_env_path} | found={_env_path.exists()} | loaded={_loaded} | key_present={'ANTHROPIC_API_KEY' in os.environ}")
+load_dotenv(_env_path, override=False)
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +391,7 @@ GOAL
 # Claude API call
 # ---------------------------------------------------------------------------
 
-def get_coaching_analysis(ctx: CoachingContext) -> str:
+def get_coaching_analysis(ctx: CoachingContext) -> tuple[str, str]:
     """
     Send the athlete context to Claude and return the markdown response.
 
@@ -404,8 +402,8 @@ def get_coaching_analysis(ctx: CoachingContext) -> str:
         ctx: Populated CoachingContext from build_coaching_context()
 
     Returns:
-        Markdown string with four sections: Current Form, Weekly Plan,
-        Goal Feasibility, and Watch Points.
+        Tuple of (markdown_response, model_name) so the Streamlit page can
+        display which model generated the analysis in the footer.
 
     Raises:
         RuntimeError: if the API call fails (caught in the Streamlit page).
@@ -440,8 +438,9 @@ def get_coaching_analysis(ctx: CoachingContext) -> str:
         )
 
         response_text = message.content[0].text
-        logger.info("Claude API call successful")
-        return response_text
+        model_used = message.model   # e.g. "claude-opus-4-6-20250514"
+        logger.info(f"Claude API call successful — model: {model_used}")
+        return response_text, model_used
 
     except anthropic.AuthenticationError:
         logger.error("Invalid Anthropic API key")

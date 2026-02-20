@@ -75,12 +75,19 @@
 #### Critical schema facts (for reference in future sessions)
 
 ```
-mart_training_summary:    rolling_4wk_avg_distance_km, rolling_4wk_avg_training_load
+mart_training_summary:    week_start_date, total_distance_km, total_training_load,
+                          avg_pace_min_per_km (NOT average_pace_min_per_km),
                           pct_zone1_easy, pct_zone2_moderate, pct_zone3_tempo,
-                          pct_zone4_threshold, pct_zone5_max
+                          pct_zone4_threshold, pct_zone5_max,
+                          rolling_4wk_avg_distance_km, rolling_4wk_avg_training_load
+
 mart_health_trends:       date (not health_date), total_sleep_hours, hrv_numeric,
-                          average_stress_level, recovery_score, training_readiness
-mart_race_performance:    race_date, finish_time_formatted (H:MM:SS), is_personal_record,
+                          resting_heart_rate, average_stress_level,
+                          recovery_score, training_readiness
+
+mart_race_performance:    race_date, race_distance_category,
+                          pace_min_per_km (NOT average_pace_min_per_km),
+                          finish_time_formatted (H:MM:SS), is_personal_record,
                           performance_rating, race_readiness_score
 ```
 
@@ -94,7 +101,7 @@ mart_race_performance:    race_date, finish_time_formatted (H:MM:SS), is_persona
   - Downgraded from 1.54.0 to fix DuckDB 1.4.4 Arrow serialisation error
   - All pages use `st.session_state` instead of `@st.cache_data`
 - [x] Modular architecture:
-  - `utils/database.py` — data loading functions
+  - `utils/database.py` — data loading functions (fetchall() pattern, no Arrow)
   - `utils/formatting.py` — pace, time, distance formatters
   - `utils/constants.py` — Garmin-inspired colour palette, HR zones, activity types
   - `components/metrics.py` — reusable metric cards
@@ -102,51 +109,10 @@ mart_race_performance:    race_date, finish_time_formatted (H:MM:SS), is_persona
 
 #### Pages Built
 
-- [x] `0_📊_Dashboard.py` — home page
-  - Gradient hero title, data range badge
-  - All-time stats row (total distance, runs, time, PRs)
-  - Today's recovery status with readiness badge
-  - Navigation cards linking to all 4 sub-pages
-  - Light Garmin-inspired theme (no dark sidebar override)
-  - Recent activities table, key metric cards
-  - Weekly/monthly distance trends
-
-- [x] `pages/1_📈_Training_Analysis.py` — training load & pace
-  - Weekly training load (TRIMP) bar chart + 4-week rolling avg
-  - Distance & pace dual-axis chart + 4-week rolling avg
-  - HR zone distribution bar chart with 80/20 rule assessment
-  - Distance vs duration scatter, coloured by effort level (toggle-able)
-  - Toggles: `Show 4-week rolling avg` / `Show effort level on scatter`
-
-- [x] `pages/2_🏃_Race_Performance.py` — race history & PRs
-  - Career summary (total races, PRs, best pace)
-  - Race history table with emoji PR indicators
-  - Pace progression scatter (PR lines per distance category)
-  - PR cards per distance
-  - Race readiness & training context charts
-
-- [x] `pages/3_❤️_Health.py` — health & recovery
-  - Sleep trends bar chart (colour-coded) + 7-day avg + sleep stage breakdown
-  - Resting HR & HRV side-by-side charts
-  - Stress levels & Body Battery range charts
-  - Recovery score timeline with coloured markers + readiness breakdown
-  - Daily steps chart
-  - Data range info banner (shows when selected period exceeds available data)
-  - Toggle: `Show 7-day rolling avg`
-
-#### Bug fixes applied
-
-- `pages/1_📈_Training_Analysis.py` — rolling avg lines were never drawn because the page
-  checked for `rolling_4wk_avg_distance` / `rolling_4wk_avg_load` (wrong). Corrected to
-  `rolling_4wk_avg_distance_km` / `rolling_4wk_avg_training_load` (real mart column names).
-  Also renamed `Show effort annotations` → `Show effort level on scatter` and wired it to
-  actually toggle the scatter colour column.
-- `0_📊_Dashboard.py` — duplicate 🏃 emoji in H1 title removed (`APP_TITLE` already contains the emoji;
-  the HTML template was prepending a second one).
-- `pages/3_❤️_Health.py` — period filter appeared broken because all date ranges returned
-  the same data. Root cause: health data only starts Feb 8, 2026. Added a blue info banner
-  that appears whenever the selected period extends beyond the earliest available date,
-  explaining the gap and showing the sync command.
+- [x] `0_📊_Dashboard.py` — home page (light theme, gradient hero, all-time stats, recovery badge)
+- [x] `pages/1_📈_Training_Analysis.py` — training load, pace, HR zones, scatter
+- [x] `pages/2_🏃_Race_Performance.py` — race history, PRs, pace progression
+- [x] `pages/3_❤️_Health.py` — sleep, HRV, stress, Body Battery, recovery score
 
 #### Known data limitation
 
@@ -159,75 +125,67 @@ cd dbt_project && dbt run
 
 ---
 
-## 🎯 Next Steps — Roadmap
+### Phase 4: AI Coach Integration (COMPLETED ✓)
 
-### Phase 4: AI Coach Integration (NEXT 🎯)
+#### Architecture decisions
 
-#### Objective
+- **Interaction mode**: One-shot analysis (Generate button → full report)
+- **Context window**: Last 4 weeks training + last 7 days health
+- **Alerts**: Deterministic thresholds computed locally (no API cost), shown above LLM response
+- **Language**: English throughout
+- **Pedagogy**: Expander showing exact context sent to Claude (portfolio-friendly)
+- **Jargon rule**: All technical terms must be explained inline on first use
 
-Add AI-powered coaching recommendations using Claude API (Anthropic).
+#### Files created
 
-#### Tasks
+- [x] `ai_engine/__init__.py`
+- [x] `ai_engine/llm_analyzer.py` — core engine with three responsibilities:
+  - `build_coaching_context()` — aggregates 3 DataFrames into a typed dataclass
+  - `calculate_alerts()` — 5 deterministic checks (ACWR, HRV trend, sleep, recovery, goal gap)
+  - `get_coaching_analysis()` — calls Claude API, returns `(markdown, model_name)` tuple
+- [x] `ai_engine/prompts/coach_analysis.txt` — system prompt enforcing 4-section structure + jargon rule
+- [x] `streamlit_app/pages/4_🤖_AI_Coach.py` — Streamlit page (inputs → alerts → expander → LLM response)
 
-**4.1 - LLM Integration Setup**
+#### Key technical learnings
 
-- [ ] Create `ai_engine/llm_analyzer.py`
-- [ ] Set up Anthropic Claude API client
-- [ ] Create prompt templates in `ai_engine/prompts/`
+- `database.py` uses `fetchall()` which returns all columns as Python `object` dtype.
+  `.mean()` on object-dtype string columns concatenates instead of averaging.
+  Fix: `_col_mean()` helper uses `pd.to_numeric(..., errors="coerce")` before `.mean()`.
+- `load_dotenv()` must be called at module import time, not inside the function,
+  to ensure `ANTHROPIC_API_KEY` is in `os.environ` before the Anthropic client is instantiated.
+- Use `os.getenv()` (returns `None`) not `os.environ[]` (raises `KeyError`) for optional env vars.
+- `get_coaching_analysis()` returns a `tuple[str, str]` (response, model_name) so the
+  Streamlit footer can display exactly which model version generated the analysis.
 
-**4.2 - Prompt Engineering**
+#### Real column names (fixed during Phase 4)
 
-- [ ] `training_recommendations.txt` — weekly training advice
-- [ ] `injury_prevention.txt` — risk assessment based on load trends
-- [ ] `race_strategy.txt` — race-specific coaching
-- [ ] `recovery_advice.txt` — rest and nutrition suggestions
+- `mart_training_summary.avg_pace_min_per_km` (not `average_pace_min_per_km`)
+- `mart_race_performance.pace_min_per_km` (not `average_pace_min_per_km`)
 
-**4.3 - AI Coach Page**
-File: `streamlit_app/pages/4_🤖_AI_Coach.py`
+#### ACWR thresholds used for alerts
 
-- [ ] User inputs: race goal (10K/half/marathon), target time
-- [ ] Fetch last 12 weeks from `mart_training_summary` + `mart_health_trends`
-- [ ] Build structured context for LLM
-- [ ] Call Claude API and display recommendations in clear sections
-
-**4.4 - Context building (gold layer data → LLM prompt)**
-
-```python
-context = f"""
-Recent Training (12 weeks):
-- Avg weekly distance: {avg_distance} km
-- Avg pace: {avg_pace} min/km
-- Training load trend: {load_trend}
-- HR zone distribution: {easy_pct}% easy / {hard_pct}% hard
-
-Health (7 days):
-- Avg resting HR: {rhr} bpm  |  Avg HRV: {hrv} ms
-- Avg sleep: {sleep}h  |  Avg stress: {stress}/100
-- Current training readiness: {readiness}
-
-Goal: {race_distance} in {target_time}
-"""
-```
-
-#### Key resources
-
-- [Anthropic Claude API Docs](https://docs.anthropic.com/)
-- [Prompt Engineering Guide](https://www.promptingguide.ai/)
+- < 0.8: under-training (no alert — positive signal noted in LLM context)
+- 0.8–1.3: optimal zone (no alert)
+- > 1.3: caution 🟡
+- > 1.5: danger 🔴 (high injury risk)
 
 ---
 
-### Phase 5: Orchestration with Airflow (1 week)
+## 🎯 Next Steps — Roadmap
+
+### Phase 5: Orchestration with Airflow (NEXT 🎯)
 
 #### Objective
 
-Automate daily data sync and dbt transformations.
+Automate daily data sync and dbt transformations so the dashboard always shows fresh data
+without manual intervention.
 
 #### Tasks
 
 - [ ] Start Airflow: `docker-compose up -d`
-- [ ] `airflow/dags/garmin_ingestion.py` — daily at 6 AM, fetch + load to bronze
-- [ ] `airflow/dags/dbt_orchestration.py` — `dbt run` + `dbt test` after ingestion
-- [ ] Email alerts for pipeline failures
+- [ ] `airflow/dags/garmin_ingestion.py` — daily at 6 AM, fetch last 7 days → load to bronze
+- [ ] `airflow/dags/dbt_orchestration.py` — `dbt run` + `dbt test` after ingestion succeeds
+- [ ] Email/Slack alert on pipeline failure
 
 ---
 
@@ -253,8 +211,8 @@ running-performance-analyzer/
 ├── ingestion/                        ✅ COMPLETE
 │   ├── config.py
 │   ├── utils.py
-│   ├── garmin_connector.py           ✅ (includes event_type)
-│   ├── duckdb_manager.py             ✅ (includes migrate_add_event_type)
+│   ├── garmin_connector.py
+│   ├── duckdb_manager.py
 │   ├── ingest_garmin.py
 │   └── test_connector.py
 │
@@ -266,12 +224,12 @@ running-performance-analyzer/
 │   └── tests/
 │
 ├── streamlit_app/                    ✅ COMPLETE
-│   ├── 0_📊_Dashboard.py             ✅ Home page (light theme)
+│   ├── 0_📊_Dashboard.py             ✅ Home page
 │   ├── pages/
-│   │   ├── 1_📊_Dashboard.py         ✅
-│   │   ├── 2_📈_Training_Analysis.py ✅
-│   │   ├── 3_🏃_Race_Performance.py  ✅
-│   │   └── 4_❤️_Health.py            ✅
+│   │   ├── 1_📈_Training_Analysis.py ✅
+│   │   ├── 2_🏃_Race_Performance.py  ✅
+│   │   ├── 3_❤️_Health.py            ✅
+│   │   └── 4_🤖_AI_Coach.py          ✅
 │   ├── components/
 │   │   ├── metrics.py                ✅
 │   │   └── charts.py                 ✅
@@ -280,16 +238,18 @@ running-performance-analyzer/
 │       ├── formatting.py             ✅
 │       └── constants.py              ✅
 │
-├── ai_engine/                        ⏳ TODO: Phase 4
+├── ai_engine/                        ✅ COMPLETE (Phase 4)
+│   ├── __init__.py
 │   ├── llm_analyzer.py
 │   └── prompts/
+│       └── coach_analysis.txt
 │
 ├── airflow/                          ⏳ TODO: Phase 5
 │   └── dags/
 │
 ├── data/
 │   └── duckdb/
-│       └── running_analytics.duckdb  ✅ Active (23 activities, ~10 days health)
+│       └── running_analytics.duckdb  ✅ Active
 │
 └── scripts/
     └── query_data.py                 ✅
@@ -324,7 +284,7 @@ Your project now demonstrates:
 - ✅ **Data Engineering**: Garmin API integration, DuckDB pipeline, incremental loads
 - ✅ **Data Analytics**: SQL aggregations, rolling averages, recovery scoring
 - ✅ **Data Visualisation**: Streamlit + Plotly multi-page dashboard
-- ⏳ **AI Engineering**: Claude API integration, prompt engineering ← _Phase 4_
+- ✅ **AI Engineering**: Claude API integration, prompt engineering, context compression
 - ⏳ **Orchestration**: Airflow DAGs, scheduling ← _Phase 5_
 
 ### Portfolio talking points (ready to use)
@@ -332,8 +292,9 @@ Your project now demonstrates:
 - "Built end-to-end data pipeline: Garmin Connect API → DuckDB medallion architecture → dbt transformations → Streamlit dashboard"
 - "Implemented race detection using Garmin's event_type field — fixed false positives that distance-based heuristics produced"
 - "Calculated custom recovery score (0–100) from sleep, HRV, resting HR, stress and Body Battery using dbt SQL"
-- "Built 4-page interactive analytics dashboard with Plotly charts and Garmin-inspired design"
+- "Built 5-page interactive analytics dashboard with Plotly charts and Garmin-inspired design"
 - "Resolved Streamlit ↔ DuckDB Arrow serialisation incompatibility by switching to session_state caching"
+- "Integrated Claude API for AI coaching: designed token-efficient context compression (aggregates not raw rows), deterministic alert layer separate from LLM, structured 4-section prompt with jargon policy"
 
 ---
 
@@ -343,8 +304,8 @@ Share this file at the start of a new Claude conversation, then say:
 
 ```
 I'm working on a running analytics portfolio project.
-Phases 1–3 are complete (Garmin ingestion → dbt → Streamlit dashboard).
-Now I want to build Phase 4: the AI Coach page using Claude API.
+Phases 1–4 are complete (Garmin ingestion → dbt → Streamlit dashboard → AI Coach).
+Now I want to build Phase 5: Airflow orchestration.
 
 Here's my NEXT_STEPS.md: [paste this file]
 ```
