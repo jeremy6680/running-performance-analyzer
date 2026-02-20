@@ -81,6 +81,11 @@ class CoachingContext:
     goal_pace_min_per_km: float
     weeks_to_race: int
 
+    # Weather — optional string injected into the LLM prompt.
+    # Set by the AI Coach page after calling format_weather_for_prompt().
+    # None when the user leaves the city field blank or the API is unavailable.
+    weather_prompt_str: Optional[str] = None
+
 
 # ---------------------------------------------------------------------------
 # Alert calculation (deterministic — no LLM)
@@ -384,6 +389,12 @@ GOAL
 - Required pace: {fmt_pace(ctx.goal_pace_min_per_km)}/km
 - Time to race: {ctx.weeks_to_race} weeks
 """
+
+    # Append the weather block when available — placed after the goal so the
+    # LLM reads training/health context first and weather as forward-looking input.
+    if ctx.weather_prompt_str:
+        prompt += "\n\n" + ctx.weather_prompt_str
+
     return prompt.strip()
 
 

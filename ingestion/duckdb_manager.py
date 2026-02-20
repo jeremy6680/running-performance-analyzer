@@ -649,6 +649,112 @@ class DuckDBManager:
         logger.success(f"✅ Upserted {count} calendar events into raw_garmin_calendar_events")
         return count
 
+    def create_coach_analyses_table(self) -> None:
+        """
+        Create the coach_analyses table if it doesn't exist.
+
+        Stores saved AI coaching analyses with their goal context and
+        the full LLM response. Used by the Past Analyses page.
+
+        Grain: one row per saved analysis (user clicks "Save this analysis").
+        Idempotent: safe to call multiple times.
+        """
+        self.execute("""
+            CREATE TABLE IF NOT EXISTS coach_analyses (
+                analysis_id  VARCHAR PRIMARY KEY,
+                generated_at TIMESTAMP NOT NULL,
+                goal_distance    VARCHAR NOT NULL,
+                goal_hours       INTEGER NOT NULL,
+                goal_minutes     INTEGER NOT NULL,
+                race_date        DATE    NOT NULL,
+                city_name        VARCHAR,
+                prompt_context   TEXT    NOT NULL,
+                response_md      TEXT    NOT NULL,
+                model_used       VARCHAR NOT NULL,
+                saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.success("✅ Created table: coach_analyses")
+
+    def save_coach_analysis(
+        self,
+        analysis_id: str,
+        generated_at,
+        goal_distance: str,
+        goal_hours: int,
+        goal_minutes: int,
+        race_date,
+        prompt_context: str,
+        response_md: str,
+        model_used: str,
+        city_name: str = None,
+    ) -> None:
+        """
+        Insert a coaching analysis into coach_analyses.
+
+        Silently replaces if analysis_id already exists (idempotent save).
+
+        Args:
+            analysis_id:    UUID string uniquely identifying this analysis.
+            generated_at:   datetime when the analysis was generated.
+            goal_distance:  e.g. "Half Marathon"
+            goal_hours:     target finish hours.
+            goal_minutes:   target finish minutes.
+            race_date:      target race date (Python date object).
+            prompt_context: the full context string sent to Claude.
+            response_md:    the markdown response from Claude.
+            model_used:     model identifier string from the API response.
+            city_name:      city used for weather forecast (optional).
+        """
+        self.create_coach_analyses_table()
+        self.execute("""
+            INSERT OR REPLACE INTO coach_analyses (
+                analysis_id, generated_at, goal_distance, goal_hours, goal_minutes,
+                race_date, city_name, prompt_context, response_md, model_used, saved_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (
+            analysis_id, generated_at, goal_distance, goal_hours, goal_minutes,
+            race_date, city_name, prompt_context, response_md, model_used,
+        ))
+        logger.success(f"✅ Saved coach analysis: {analysis_id}")
+
+    def load_coach_analyses(self) -> pd.DataFrame:
+        """
+        Load all saved coaching analyses ordered by most recent first.
+
+        Returns:
+            DataFrame with one row per saved analysis.
+            Empty DataFrame if the table does not exist yet.
+        """
+        try:
+            self.create_coach_analyses_table()
+            conn = self.connect()
+            result = conn.execute("""
+                SELECT analysis_id, generated_at, goal_distance, goal_hours,
+                       goal_minutes, race_date, city_name,
+                       prompt_context, response_md, model_used, saved_at
+                FROM coach_analyses
+                ORDER BY generated_at DESC
+            """)
+            columns = [d[0] for d in result.description]
+            return pd.DataFrame(result.fetchall(), columns=columns)
+        except Exception as e:
+            logger.warning(f"Could not load coach analyses: {e}")
+            return pd.DataFrame()
+
+    def delete_coach_analysis(self, analysis_id: str) -> None:
+        """
+        Delete a saved coaching analysis by its ID.
+
+        Args:
+            analysis_id: UUID of the analysis to delete.
+        """
+        self.execute(
+            "DELETE FROM coach_analyses WHERE analysis_id = ?",
+            (analysis_id,)
+        )
+        logger.info(f"Deleted coach analysis: {analysis_id}")
+
     def get_activities_count(self) -> int:
         """Get total count of activities in database."""
         result = self.execute("SELECT COUNT(*) FROM raw_garmin_activities").fetchone()
