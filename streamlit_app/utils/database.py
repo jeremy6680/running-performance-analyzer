@@ -56,6 +56,55 @@ DB_PATH = _find_db_path()
 
 
 # ---------------------------------------------------------------------------
+# Date normalisation
+# ---------------------------------------------------------------------------
+
+# Columns that should be stored as datetime.date (not pandas Timestamp or str).
+# DuckDB returns DATE columns as datetime.date via fetchall(), but some columns
+# arrive as strings (object dtype) when they were cast to VARCHAR upstream, or
+# as Timestamp when pandas infers the type from mixed content.
+# Normalising everything to datetime.date here means every page can safely
+# compare against values returned by st.date_input() (which is datetime.date)
+# without hitting the "Cannot compare Timestamp with datetime.date" TypeError.
+_DATE_COLUMNS: set[str] = {
+    "week_start_date",
+    "date",
+    "activity_date",
+    "race_date",
+    "event_date",
+}
+
+
+def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert any known date column present in *df* to ``datetime.date``.
+
+    Why this is necessary:
+        - ``fetchall()`` returns DuckDB DATE values as ``datetime.date`` objects,
+          but pandas may later infer them as ``pd.Timestamp`` (e.g. after a
+          concat or after session_state round-trips).
+        - ``st.date_input()`` always returns ``datetime.date``.
+        - Comparing ``pd.Timestamp >= datetime.date`` raises a ``TypeError``
+          in pandas ≥ 2.0, so we normalise at load time once.
+        - Columns that are already ``datetime.date`` are left untouched
+          (``pd.to_datetime`` handles both strings and existing date objects).
+
+    Args:
+        df: DataFrame freshly built from ``fetchall()``.
+
+    Returns:
+        The same DataFrame with date columns cast to ``datetime.date``.
+    """
+    for col in _DATE_COLUMNS:
+        if col not in df.columns:
+            continue
+        # pd.to_datetime is robust: handles str, datetime.date, Timestamp, None.
+        # .dt.date extracts the Python datetime.date part, keeping NaT → NaN.
+        df[col] = pd.to_datetime(df[col], errors="coerce").dt.date
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Private query helper
 # ---------------------------------------------------------------------------
 
@@ -92,7 +141,10 @@ def _query(sql: str) -> pd.DataFrame:
         result = conn.execute(sql)
         columns = [desc[0] for desc in result.description]
         rows = result.fetchall()
-        return pd.DataFrame(rows, columns=columns)
+        df = pd.DataFrame(rows, columns=columns)
+        # Normalise date columns to datetime.date so all pages can safely
+        # compare against st.date_input() values (also datetime.date).
+        return _normalize_dates(df)
 
 
 # ---------------------------------------------------------------------------

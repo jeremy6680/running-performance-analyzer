@@ -165,8 +165,25 @@ for _, row in df.iterrows():
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
         # ── Context sent to Claude (collapsible) ──────────────────────────
-        with st.expander("📋 Context that was sent to Claude", expanded=False):
-            st.code(row["prompt_context"], language="text")
+        # Streamlit 1.45 does not allow nested expanders — the inner
+        # st.expander raises StreamlitAPIException: "Expanders may not be
+        # nested inside other expanders."
+        # Workaround: use a toggle button stored in session_state to show/hide
+        # the context block, which renders as a plain container (no nesting).
+        toggle_key = f"show_ctx_{analysis_id}"
+        if toggle_key not in st.session_state:
+            st.session_state[toggle_key] = False
+
+        if st.button(
+            "📋 Show context sent to Claude" if not st.session_state[toggle_key]
+            else "📋 Hide context sent to Claude",
+            key=f"ctx_btn_{analysis_id}",
+        ):
+            st.session_state[toggle_key] = not st.session_state[toggle_key]
+
+        if st.session_state[toggle_key]:
+            with st.container():
+                st.code(row["prompt_context"], language="text")
 
         # ── Footer + delete ────────────────────────────────────────────────
         footer_col, delete_col = st.columns([6, 1])
