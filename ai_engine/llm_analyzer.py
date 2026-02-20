@@ -21,7 +21,16 @@ from typing import Optional
 
 import anthropic
 import pandas as pd
+from dotenv import load_dotenv
 from loguru import logger
+
+# Load .env from the project root (two levels up from ai_engine/).
+# This ensures ANTHROPIC_API_KEY is available regardless of how the app is launched.
+# override=False means existing shell env variables take precedence.
+_env_path = Path(__file__).resolve().parents[1] / ".env"
+_loaded = load_dotenv(_env_path, override=False)
+# Log at import time so you can confirm the .env path and whether it was found
+logger.debug(f"load_dotenv: path={_env_path} | found={_env_path.exists()} | loaded={_loaded} | key_present={'ANTHROPIC_API_KEY' in os.environ}")
 
 
 # ---------------------------------------------------------------------------
@@ -411,8 +420,15 @@ def get_coaching_analysis(ctx: CoachingContext) -> str:
     logger.info(f"Calling Claude API for coaching analysis — goal: {ctx.goal_distance}, "
                 f"{ctx.weeks_to_race} weeks out")
 
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY not found. "
+            "Make sure it is set in your .env file at the project root."
+        )
+
     try:
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        client = anthropic.Anthropic(api_key=api_key)
 
         message = client.messages.create(
             model="claude-opus-4-6",          # best reasoning for coaching nuance
