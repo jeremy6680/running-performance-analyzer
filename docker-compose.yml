@@ -33,7 +33,7 @@ x-airflow-common: &airflow-common
     # Install extra Python packages at container startup.
     # dbt + garminconnect + loguru are needed by our DAG tasks.
     # Note: for production, build a custom Docker image instead (faster startup).
-    _PIP_ADDITIONAL_REQUIREMENTS: "dbt-core==1.7.7 dbt-duckdb==1.7.2 garminconnect==0.2.13 loguru==0.7.2 python-dotenv==1.0.1 pydantic-settings==2.1.0"
+    _PIP_ADDITIONAL_REQUIREMENTS: "dbt-core==1.7.7 dbt-duckdb==1.7.2 garminconnect==0.2.38 loguru==0.7.2 python-dotenv==1.0.1 pydantic>=2.6.0 pydantic-settings>=2.1.0"
 
     # Airflow core settings
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -77,7 +77,8 @@ x-airflow-common: &airflow-common
     # Python modules (ingestion, ai_engine) accessible to DAGs
     - ./ingestion:/opt/airflow/modules/ingestion:ro
     - ./ai_engine:/opt/airflow/modules/ai_engine:ro
-    - ./dbt_project:/opt/airflow/dbt_project:ro
+    # dbt_project: read-write so dbt can write logs/dbt.log and target/ at runtime
+    - ./dbt_project:/opt/airflow/dbt_project
     
     # Requirements for additional packages
     - ./airflow/requirements.txt:/opt/airflow/requirements.txt:ro

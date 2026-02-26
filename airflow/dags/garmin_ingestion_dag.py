@@ -122,6 +122,29 @@ with DAG(
         Returns:
             dict: Ingestion statistics (activities_count, health_count, etc.)
         """
+        import os
+
+        # In Docker, load_dotenv() in config.py won't find .env because the
+        # module is mounted at /opt/airflow/modules/ (not the project root).
+        # Credentials are already injected as env vars via docker-compose,
+        # so we verify they're present before importing config.
+        required_vars = ["GARMIN_EMAIL", "GARMIN_PASSWORD", "DUCKDB_PATH"]
+        missing = [v for v in required_vars if not os.environ.get(v)]
+        if missing:
+            raise RuntimeError(
+                f"Missing environment variables: {missing}. "
+                f"Check docker-compose.yml environment section."
+            )
+
+        # Override session file path to the mounted data volume.
+        # The default 'data/garmin_session.json' is relative and doesn't
+        # exist inside the container — /opt/airflow/data/ is mounted from
+        # the host ./data/ folder via docker-compose volumes.
+        os.environ.setdefault(
+            "GARMIN_SESSION_FILE",
+            "/opt/airflow/data/garmin_session.json"
+        )
+
         # Import here (inside the task function) so Airflow doesn't try to
         # import at DAG-parse time, before sys.path is configured.
         from ingestion.ingest_garmin import ingest_garmin_data

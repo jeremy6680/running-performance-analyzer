@@ -122,6 +122,14 @@ class GarminConnector:
             
             # Login with credentials
             logger.info("Logging in with credentials...")
+            logger.warning(
+                "⚠️  Direct credential login may fail inside Docker (Garmin blocks "
+                "unknown IPs). If this fails, generate a fresh session on your host:\n"
+                "  python3 -c \"from garminconnect import Garmin; import json,os; "
+                "from dotenv import load_dotenv; load_dotenv(); "
+                "c=Garmin(os.getenv('GARMIN_EMAIL'),os.getenv('GARMIN_PASSWORD')); "
+                "c.login(); open('data/garmin_session.json','w').write(json.dumps(c.garth.dumps()))\""
+            )
             self.client = Garmin(self.email, self.password)
             self.client.login()
             
@@ -143,7 +151,10 @@ class GarminConnector:
             return False
         
         except Exception as e:
-            logger.error(f"❌ Unexpected error during login: {e}")
+            # Log the full exception including type and traceback for debugging
+            import traceback
+            logger.error(f"❌ Unexpected error during login: {type(e).__name__}: {e}")
+            logger.error(traceback.format_exc())
             self._authenticated = False
             return False
     
