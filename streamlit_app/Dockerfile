@@ -22,14 +22,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (for Docker layer caching)
-COPY requirements.txt /app/
-COPY streamlit_app/requirements.txt /app/streamlit_requirements.txt
+# Copy ONLY the Streamlit-specific requirements (not the global requirements.txt
+# which includes Airflow, dbt, stravalib etc. — not needed here and causes conflicts)
+COPY streamlit_app/requirements.txt /app/requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -r streamlit_requirements.txt
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY streamlit_app/ /app/streamlit_app/
@@ -50,7 +49,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 # - --server.address: Bind to all interfaces (required for Docker)
 # - --server.headless: Run without opening browser
 # - --server.fileWatcherType: Disable file watcher in container
-CMD ["streamlit", "run", "streamlit_app/app.py", \
+CMD ["streamlit", "run", "streamlit_app/0_📊_Dashboard.py", \
      "--server.port=8501", \
      "--server.address=0.0.0.0", \
      "--server.headless=true", \

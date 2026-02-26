@@ -32,7 +32,8 @@ x-airflow-common: &airflow-common
   environment:
     # Airflow core settings
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    # Airflow 2.8+ uses [database] section instead of deprecated [core]
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
@@ -56,14 +57,14 @@ x-airflow-common: &airflow-common
   
   # Mount volumes
   volumes:
-    # DAGs folder (read-only for security)
-    - ./airflow/dags:/opt/airflow/dags:ro
+    # DAGs folder (read-write so airflow-init can chown it)
+    - ./airflow/dags:/opt/airflow/dags
     
     # Logs folder (read-write)
     - ./airflow/logs:/opt/airflow/logs
     
-    # Plugins folder (read-only)
-    - ./airflow/plugins:/opt/airflow/plugins:ro
+    # Plugins folder (read-write so airflow-init can chown it)
+    - ./airflow/plugins:/opt/airflow/plugins
     
     # Data folder (shared with host for DuckDB)
     - ./data:/opt/airflow/data
@@ -166,8 +167,8 @@ services:
       - -c
       - |
         # Create directories with correct permissions
+        # Note: chown is skipped here because we already run as airflow user
         mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
-        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/{logs,dags,plugins}
         
         # Initialize Airflow database
         airflow db init
@@ -189,11 +190,16 @@ services:
         echo "Airflow initialization complete!"
     
     environment:
-      <<: *airflow-common
+      # Repeat the DB connection here because we can't merge *airflow-common
+      # (that would create a circular YAML reference since airflow-init already
+      # uses <<: *airflow-common at the service level)
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       _AIRFLOW_DB_UPGRADE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
     
-    user: "0:0"
+    # Run as airflow user (not root) so the airflow module is found in the correct PATH
+    user: "${AIRFLOW_UID:-50000}:0"
     
     restart: "no"
 
