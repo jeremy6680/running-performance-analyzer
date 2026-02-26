@@ -1,0 +1,37 @@
+# =============================================================================
+# dbt Profiles - Running Performance Analyzer
+# =============================================================================
+# This file is used when running dbt from INSIDE Docker (Airflow containers).
+# The DuckDB path uses an environment variable so it works both in Docker
+# (/opt/airflow/data/...) and locally (via DUCKDB_PATH in .env).
+#
+# For local development, dbt uses the profiles.yml in the project ROOT,
+# which has a relative path. This file takes precedence when you pass
+# --profiles-dir /opt/airflow/dbt_project (as the Airflow DAG does).
+#
+# Connection resolution:
+#   Airflow DAG  → --profiles-dir /opt/airflow/dbt_project → this file
+#   Local CLI    → dbt run (no flag) → ~/.dbt/profiles.yml or root profiles.yml
+# =============================================================================
+
+running_performance_analyzer:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+
+      # Use env var so the same file works in Docker and locally.
+      # Docker:  DUCKDB_PATH=/opt/airflow/data/duckdb/running_analytics.duckdb
+      # Local:   DUCKDB_PATH=data/duckdb/running_analytics.duckdb  (set in .env)
+      path: "{{ env_var('DUCKDB_PATH', 'data/duckdb/running_analytics.duckdb') }}"
+
+      schema: main
+      threads: 4
+
+      extensions:
+        - httpfs
+        - parquet
+        - json
+
+      settings:
+        preserve_insertion_order: false
