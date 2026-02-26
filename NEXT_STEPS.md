@@ -173,19 +173,45 @@ cd dbt_project && dbt run
 
 ## 🎯 Next Steps — Roadmap
 
-### Phase 5: Orchestration with Airflow (NEXT 🎯)
+### Phase 5: Orchestration with Airflow (COMPLETED ✓)
 
-#### Objective
+#### What was built
 
-Automate daily data sync and dbt transformations so the dashboard always shows fresh data
-without manual intervention.
+- [x] Docker Compose stack: postgres + airflow-webserver + airflow-scheduler + streamlit
+- [x] `airflow/dags/garmin_ingestion_dag.py` — daily at 6 AM Europe/Paris, fetches last 7 days → DuckDB bronze
+- [x] `airflow/dags/dbt_transformation_dag.py` — `dbt run` + `dbt test`, triggered automatically after ingestion
+- [x] `dbt_project/profiles.yml` — dedicated profiles file for Docker with `env_var('DUCKDB_PATH')`
 
-#### Tasks
+#### Key technical learnings (Docker + Airflow)
 
-- [ ] Start Airflow: `docker-compose up -d`
-- [ ] `airflow/dags/garmin_ingestion.py` — daily at 6 AM, fetch last 7 days → load to bronze
-- [ ] `airflow/dags/dbt_orchestration.py` — `dbt run` + `dbt test` after ingestion succeeds
-- [ ] Email/Slack alert on pipeline failure
+- `_PIP_ADDITIONAL_REQUIREMENTS` installs packages at container startup (convenient for dev).
+  Final pinned versions: `dbt-core==1.7.7 dbt-duckdb==1.7.2 garminconnect==0.2.38 loguru==0.7.2 python-dotenv==1.0.1 pydantic>=2.6.0 pydantic-settings>=2.1.0`
+- Garmin Connect blocks direct credential login from Docker IPs (unknown IP detection).
+  Workaround: generate a fresh session on the host, save to `data/garmin_session.json`,
+  the file is available inside the container via the `./data:/opt/airflow/data` volume mount.
+- `garminconnect==0.2.38` requires `pydantic>=2.6.0` (fixes `duplicate parameter name: timestamp_gmt` in garth).
+- `dbt_project/` must be mounted **read-write** (not `:ro`) so dbt can write `logs/dbt.log` and `target/`.
+- `profiles.yml` must live inside `dbt_project/` when using `--profiles-dir /opt/airflow/dbt_project`.
+  The root-level `profiles.yml` is used for local development only.
+- Volume mount changes require `docker-compose down && docker-compose up -d` (not just `restart`).
+
+#### Session refresh procedure (when Garmin session expires)
+
+```bash
+source venv/bin/activate
+python3 -c "
+from garminconnect import Garmin
+import json, os
+from dotenv import load_dotenv
+load_dotenv()
+client = Garmin(os.getenv('GARMIN_EMAIL'), os.getenv('GARMIN_PASSWORD'))
+client.login()
+session = client.garth.dumps()
+with open('data/garmin_session.json', 'w') as f:
+    json.dump(session, f)
+print('Session saved!')
+"
+```
 
 ---
 
@@ -244,8 +270,10 @@ running-performance-analyzer/
 │   └── prompts/
 │       └── coach_analysis.txt
 │
-├── airflow/                          ⏳ TODO: Phase 5
+├── airflow/                          ✅ COMPLETE (Phase 5)
 │   └── dags/
+│       ├── garmin_ingestion_dag.py   ✅ Daily 6AM, fetches 7 days → bronze
+│       └── dbt_transformation_dag.py ✅ dbt run + dbt test, triggered after ingestion
 │
 ├── data/
 │   └── duckdb/
@@ -285,7 +313,7 @@ Your project now demonstrates:
 - ✅ **Data Analytics**: SQL aggregations, rolling averages, recovery scoring
 - ✅ **Data Visualisation**: Streamlit + Plotly multi-page dashboard
 - ✅ **AI Engineering**: Claude API integration, prompt engineering, context compression
-- ⏳ **Orchestration**: Airflow DAGs, scheduling ← _Phase 5_
+- ✅ **Orchestration**: Airflow DAGs, scheduling, Docker Compose
 
 ### Portfolio talking points (ready to use)
 
