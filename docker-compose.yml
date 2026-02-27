@@ -228,8 +228,10 @@ services:
       # Streamlit app code
       - ./streamlit_app:/app/streamlit_app:ro
       
-      # Shared data folder (read-only, Airflow writes, Streamlit reads)
-      - ./data:/app/data:ro
+      # Shared data folder (read-write: Streamlit needs write access to save
+      # AI coaching analyses to DuckDB — not truly read-only even though
+      # Airflow is the primary writer)
+      - ./data:/app/data
       
       # AI engine (for LLM integration)
       - ./ai_engine:/app/ai_engine:ro
