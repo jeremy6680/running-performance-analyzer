@@ -1,255 +1,169 @@
-# 🚀 Quick Start Guide - Running Performance Analyzer
+# Developer Setup Guide — Running Performance Analyzer
 
-## 📦 Fichiers créés (Étape 1 complète)
-
-Voici tous les fichiers de configuration que nous avons créés :
-
-### Configuration principale
-- ✅ `PROJECT_STRUCTURE.md` - Documentation de la structure
-- ✅ `.gitignore` - Exclusions Git
-- ✅ `.env.example` - Template variables d'environnement
-- ✅ `requirements.txt` - Dépendances Python globales
-- ✅ `requirements-dev.txt` - Dépendances développement
-- ✅ `README.md` - Documentation projet (pour GitHub)
-- ✅ `docker-compose.yml` - Orchestration Docker
-
-### Streamlit
-- ✅ `streamlit_app/Dockerfile` - Image Docker Streamlit
-- ✅ `streamlit_app/requirements.txt` - Dépendances Streamlit
-- ✅ `streamlit_app/.streamlit/config.toml` - Configuration Streamlit
-
-### Airflow
-- ✅ `airflow/requirements.txt` - Dépendances Airflow
+This guide explains how to get the project running on a fresh machine.
 
 ---
 
-## 🎯 Prochaines étapes
+## Prerequisites
 
-### Étape 1.2 : Créer la structure de dossiers
+| Tool                    | Version | Notes                                             |
+| ----------------------- | ------- | ------------------------------------------------- |
+| Python                  | 3.11.9  | Use pyenv — Python 3.12+ has dependency conflicts |
+| Docker & Docker Compose | Latest  | Required for Airflow orchestration                |
+| DuckDB CLI              | 1.4.x   | Optional, for direct DB inspection                |
+| Git                     | Any     | —                                                 |
 
-```bash
-# Créer tous les dossiers nécessaires
-mkdir -p airflow/dags
-mkdir -p airflow/logs
-mkdir -p airflow/plugins
-mkdir -p dbt_project/models/{staging,intermediate,marts}
-mkdir -p dbt_project/macros
-mkdir -p dbt_project/tests
-mkdir -p dbt_project/seeds
-mkdir -p ingestion
-mkdir -p ai_engine/prompts
-mkdir -p ai_engine/rag
-mkdir -p streamlit_app/pages
-mkdir -p streamlit_app/components
-mkdir -p streamlit_app/utils
-mkdir -p data/duckdb
-mkdir -p data/raw
-mkdir -p data/exports
-mkdir -p notebooks
-mkdir -p tests
-mkdir -p docs
+---
 
-# Créer des fichiers .gitkeep pour préserver les dossiers vides dans Git
-touch airflow/logs/.gitkeep
-touch data/raw/.gitkeep
-touch data/exports/.gitkeep
-```
-
-### Étape 1.3 : Configurer l'environnement
+## 1. Clone & configure environment
 
 ```bash
-# 1. Copier le template .env
+git clone https://github.com/yourusername/running-performance-analyzer.git
+cd running-performance-analyzer
+
+# Copy and fill in credentials
 cp .env.example .env
-
-# 2. Éditer .env et remplir :
-#    - GARMIN_EMAIL
-#    - GARMIN_PASSWORD
-#    - ANTHROPIC_API_KEY
-#    - AIRFLOW_ADMIN_PASSWORD (changer "admin" par un vrai mot de passe)
-nano .env  # ou vim .env, ou ton éditeur préféré
-
-# 3. Générer une Fernet key pour Airflow
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-# Copier le résultat dans .env → AIRFLOW_FERNET_KEY=...
-
-# 4. Définir l'UID Airflow (Linux/Mac seulement)
-echo -e "AIRFLOW_UID=$(id -u)" >> .env
+nano .env
 ```
 
-### Étape 1.4 : Initialiser Git
+Required values in `.env`:
 
-```bash
-# Initialiser le repo Git
-git init
-
-# Ajouter tous les fichiers de config
-git add .
-git commit -m "Initial commit: Project structure and configuration"
-
-# (Optionnel) Créer le repo sur GitHub et pusher
-# gh repo create running-performance-analyzer --public --source=. --remote=origin
-# git push -u origin main
+```
+GARMIN_EMAIL=your@email.com
+GARMIN_PASSWORD=yourpassword
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ---
 
-## 🐳 Étape 2 : Démarrer Docker (OPTIONNEL pour l'instant)
+## 2. Python environments
 
-**Note** : On peut attendre d'avoir le code Python avant de démarrer Docker.
-Mais si tu veux tester que tout fonctionne :
+This project uses **two separate virtual environments** to avoid a DuckDB <-> Streamlit Arrow serialisation conflict.
+
+### Main environment (ingestion + dbt)
 
 ```bash
-# Démarrer les services
+# Install Python 3.11.9 via pyenv if needed
+pyenv install 3.11.9
+pyenv local 3.11.9
+
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Streamlit environment
+
+```bash
+python -m venv venv_streamlit
+source venv_streamlit/bin/activate
+pip install -r streamlit_app/requirements.txt
+```
+
+> **Why two envs?** Streamlit 1.54+ conflicts with DuckDB 1.4.4 via PyArrow.
+> The Streamlit env pins Streamlit at 1.45.0 to avoid this entirely.
+
+---
+
+## 3. Initial data sync
+
+```bash
+source venv/bin/activate
+
+# Fetch last 90 days (recommended for first run — includes health history)
+python -m ingestion.ingest_garmin --days 90
+
+# Run dbt transformations
+cd dbt_project
+dbt run
+dbt test
+cd ..
+```
+
+For ongoing daily use, just fetch 7 days:
+
+```bash
+python -m ingestion.ingest_garmin --days 7
+```
+
+---
+
+## 4. Launch the dashboard
+
+```bash
+source venv_streamlit/bin/activate
+streamlit run "streamlit_app/0_Dashboard.py"
+# Open http://localhost:8501
+```
+
+---
+
+## 5. Airflow orchestration (optional)
+
+Airflow automates daily ingestion + dbt runs. Requires Docker.
+
+```bash
+# Generate a Fernet key for Airflow
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Add result to .env: AIRFLOW_FERNET_KEY=...
+
+# Set your UID (Linux/Mac only)
+echo "AIRFLOW_UID=$(id -u)" >> .env
+
+# Start services
 docker-compose up -d
 
-# Vérifier les logs d'initialisation
+# First run only — wait for "Airflow initialization complete!"
 docker-compose logs -f airflow-init
 
-# Attendre le message "Airflow initialization complete!"
-# Puis Ctrl+C pour sortir des logs
-
-# Vérifier que tous les services sont up
-docker-compose ps
-
-# Accéder aux UIs
-# - Airflow : http://localhost:8080 (admin / ton_mot_de_passe)
-# - Streamlit : http://localhost:8501 (va échouer car pas encore de code 0_📊_Dashboard.py)
+# Access Airflow UI: http://localhost:8080
 ```
 
-**Si tu rencontres des problèmes Docker** :
+To stop:
+
 ```bash
-# Arrêter tous les conteneurs
-docker-compose down
-
-# Nettoyer complètement (attention : supprime les données)
-docker-compose down -v
-
-# Redémarrer
-docker-compose up -d
+docker-compose down       # stop, keep data
+docker-compose down -v    # stop and wipe volumes
 ```
 
 ---
 
-## 📝 Étape 3 : Développer le connecteur Garmin (NEXT!)
+## 6. Explore the database directly
 
-C'est ce qu'on va faire ensuite. On va créer :
-
-1. `ingestion/garmin_connector.py` - Classe pour se connecter à l'API Garmin
-2. `ingestion/utils.py` - Fonctions utilitaires
-3. `tests/test_ingestion.py` - Tests du connecteur
-4. `notebooks/01_garmin_api_testing.ipynb` - Notebook pour tester l'API
-
----
-
-## 🗂️ Structure finale attendue
-
+```bash
+duckdb data/duckdb/running_analytics.duckdb
 ```
-running-performance-analyzer/
-├── .env                        # ✅ À créer (cp .env.example .env)
-├── .env.example                # ✅ Créé
-├── .gitignore                  # ✅ Créé
-├── docker-compose.yml          # ✅ Créé
-├── README.md                   # ✅ Créé
-├── PROJECT_STRUCTURE.md        # ✅ Créé
-├── requirements.txt            # ✅ Créé
-├── requirements-dev.txt        # ✅ Créé
-│
-├── airflow/
-│   ├── dags/                   # ⏳ À créer (vide pour l'instant)
-│   ├── logs/                   # ⏳ À créer (.gitkeep)
-│   ├── plugins/                # ⏳ À créer (vide)
-│   └── requirements.txt        # ✅ Créé
-│
-├── dbt_project/
-│   ├── models/
-│   │   ├── staging/            # ⏳ À créer
-│   │   ├── intermediate/       # ⏳ À créer
-│   │   └── marts/              # ⏳ À créer
-│   ├── macros/                 # ⏳ À créer
-│   ├── tests/                  # ⏳ À créer
-│   └── seeds/                  # ⏳ À créer
-│
-├── ingestion/                  # ⏳ PROCHAINE ÉTAPE
-│   ├── __init__.py
-│   ├── garmin_connector.py     # 🎯 Next!
-│   └── utils.py
-│
-├── ai_engine/
-│   ├── prompts/                # ⏳ À créer
-│   └── rag/                    # ⏳ À créer
-│
-├── streamlit_app/
-│   ├── .streamlit/
-│   │   └── config.toml         # ✅ Créé
-│   ├── Dockerfile              # ✅ Créé
-│   ├── requirements.txt        # ✅ Créé
-│   ├── pages/                  # ⏳ À créer
-│   ├── components/             # ⏳ À créer
-│   └── utils/                  # ⏳ À créer
-│
-├── data/
-│   ├── duckdb/                 # ⏳ À créer
-│   ├── raw/                    # ⏳ À créer (.gitkeep)
-│   └── exports/                # ⏳ À créer (.gitkeep)
-│
-├── notebooks/                  # ⏳ À créer
-├── tests/                      # ⏳ À créer
-└── docs/                       # ⏳ À créer
+
+Useful queries:
+
+```sql
+SHOW TABLES;
+SELECT * FROM mart_training_summary ORDER BY week_start_date DESC LIMIT 5;
+SELECT race_date, race_distance_category, finish_time_formatted FROM mart_race_performance;
 ```
 
 ---
 
-## ✅ Checklist avant de continuer
+## 7. Run tests
 
-- [ ] Tous les fichiers de config ont été téléchargés
-- [ ] La structure de dossiers a été créée (`mkdir -p ...`)
-- [ ] Le fichier `.env` a été créé et rempli
-- [ ] Git a été initialisé et premier commit fait
-- [ ] (Optionnel) Docker a été testé et fonctionne
+```bash
+source venv/bin/activate
 
----
+# Python unit tests
+pytest tests/
 
-## 🎓 Ce que ce setup démontre aux recruteurs
-
-1. **Architecture moderne** : Docker, Airflow, dbt
-2. **Bonnes pratiques** : 
-   - Variables d'environnement sécurisées
-   - .gitignore complet
-   - Documentation exhaustive
-   - Séparation dev/prod
-3. **Reproductibilité** : N'importe qui peut cloner et lancer le projet
-4. **Professionnalisme** : Structure claire, commentaires, README complet
+# dbt data quality tests
+cd dbt_project && dbt test
+```
 
 ---
 
-## 🚀 Prêt pour l'étape 2 ?
+## Troubleshooting
 
-Dis-moi quand tu as :
-1. Créé la structure de dossiers
-2. Configuré ton `.env`
-3. (Optionnel) Testé Docker
-
-Et on passera au **connecteur Garmin API** ! 🏃‍♂️
-
----
-
-## 💡 Questions fréquentes
-
-**Q: Dois-je obligatoirement utiliser Docker ?**
-R: Pour l'instant non, tu peux développer en local. Docker est utile pour Airflow, mais on peut commencer par créer le code d'ingestion et le tester en Python pur.
-
-**Q: Je n'ai pas de montre Garmin, puis-je quand même faire le projet ?**
-R: Oui ! Tu peux :
-- Utiliser des données Garmin de démonstration
-- Te connecter à Strava (plus simple, OAuth)
-- Importer un export Apple Health
-- Générer des données fictives avec Faker
-
-**Q: Je veux commencer par le code, pas Docker**
-R: Parfait ! On va faire exactement ça. Prochaine étape = `garmin_connector.py`.
-
-**Q: Combien de temps pour le MVP complet ?**
-R: 
-- MVP fonctionnel : 2-3 semaines (soirs/week-ends)
-- Version "portfolio-ready" : 1-2 mois
-- Version avancée (ML, RAG) : 3-6 mois
+| Problem                             | Fix                                                      |
+| ----------------------------------- | -------------------------------------------------------- |
+| `ModuleNotFoundError` on dbt        | Make sure you are in `venv`, not `venv_streamlit`        |
+| Streamlit Arrow serialisation error | Make sure you are in `venv_streamlit` (Streamlit 1.45.0) |
+| Garmin login fails                  | Delete `ingestion/.garmin_session` and retry             |
+| DuckDB locked                       | Close any other process holding the `.duckdb` file       |
+| Docker port conflict on 8080        | Change `AIRFLOW_PORT` in `.env`                          |
