@@ -1,8 +1,8 @@
-# 🏃 Running Performance Analyzer - Next Steps
+# Running Performance Analyzer - Next Steps
 
-## ✅ What We've Accomplished So Far
+## What We've Accomplished So Far
 
-### Phase 1: Project Setup & Data Ingestion (COMPLETED ✓)
+### Phase 1: Project Setup & Data Ingestion (COMPLETE)
 
 #### Infrastructure
 
@@ -11,32 +11,33 @@
 - [x] Python virtual environment (Python 3.11.9 via pyenv)
 - [x] All core dependencies installed
 - [x] Environment configuration with `.env` file
-- [x] Docker Compose configuration for future Airflow deployment
+- [x] Docker Compose configuration for Airflow deployment
 
 #### Data Ingestion Pipeline
 
 - [x] **Garmin Connect API Integration**
-  - `ingestion/garmin_connector.py` — full-featured API connector
+  - `ingestion/garmin_connector.py` -- full-featured API connector
   - Session management (saves/loads sessions to avoid re-login)
   - Fetches activities (distance, pace, HR, elevation, `event_type` for race detection)
   - Fetches daily health (steps, sleep, HRV, stress, body battery)
+  - Fetches calendar race events (upcoming races)
   - Error handling and logging with loguru
 
 - [x] **DuckDB Database Layer (Bronze)**
-  - `ingestion/duckdb_manager.py` — database manager
-  - Bronze layer tables: `raw_garmin_activities` (30 cols), `raw_garmin_daily_health` (24 cols)
+  - `ingestion/duckdb_manager.py` -- database manager
+  - Bronze layer tables: `raw_garmin_activities`, `raw_garmin_daily_health`, `raw_garmin_calendar_events`
   - Upsert logic (insert new, skip duplicates)
-  - Migration: `migrate_add_event_type()` — added `event_type` column for race detection
+  - Two-phase weather back-fill: activities inserted first, weather enriched separately so a failed weather call never loses an activity row
 
 - [x] **Ingestion Scripts**
-  - `ingestion/ingest_garmin.py` — main ingestion script with CLI (`--days`, `--initial`, `--mode`)
-  - `ingestion/config.py` — Pydantic configuration management
-  - `ingestion/utils.py` — utility functions
-  - `scripts/query_data.py` — data exploration script
+  - `ingestion/ingest_garmin.py` -- main ingestion script with CLI (`--days`, `--initial`, `--mode`)
+  - `ingestion/config.py` -- Pydantic configuration management
+  - `ingestion/utils.py` -- utility functions
+  - `scripts/query_data.py` -- data exploration script
 
 ---
 
-### Phase 2: Data Transformation with dbt (COMPLETED ✓)
+### Phase 2: Data Transformation with dbt (COMPLETE)
 
 #### dbt Project Setup
 
@@ -46,33 +47,33 @@
 
 #### Silver Layer (Staging Models)
 
-- [x] `stg_garmin_activities.sql` — 482-line model with:
+- [x] `stg_garmin_activities.sql` -- 482-line model with:
   - Pace zones, HR zones, effort levels, training load (TRIMP)
-  - Race detection (event_type-first strategy — avoids false positives on distance)
+  - Race detection: `event_type = 'race'` checked first; distance-band fallback only if null
   - Race distance categorisation (5K/10K/Half/Marathon/Ultra) with GPS-drift tolerances
   - Terrain classification
-- [x] `stg_garmin_health.sql` — sleep, HRV, stress, body battery cleaning
+- [x] `stg_garmin_health.sql` -- sleep, HRV, stress, body battery cleaning
 
 #### Intermediate Layer
 
-- [x] `int_unified_activities.sql` — merges sources, standardises activity types
+- [x] `int_unified_activities.sql` -- merges sources, standardises activity types
 
 #### Gold Layer (Marts)
 
-- [x] `mart_activity_performance.sql` — per-activity analytics
-- [x] `mart_training_summary.sql` — weekly aggregations with rolling averages
+- [x] `mart_activity_performance.sql` -- per-activity analytics
+- [x] `mart_training_summary.sql` -- weekly aggregations with rolling averages
   - Columns: `rolling_4wk_avg_distance_km`, `rolling_4wk_avg_training_load`
-  - HR zone distribution: `pct_zone1_easy` → `pct_zone5_max`
-- [x] `mart_health_trends.sql` — daily health with 7/28-day rolling averages, recovery score, training readiness
-- [x] `mart_race_performance.sql` — race history, PR tracking, pace analysis, readiness context
+  - HR zone distribution: `pct_zone1_easy` -> `pct_zone5_max`
+- [x] `mart_health_trends.sql` -- daily health with 7/28-day rolling averages, recovery score, training readiness
+- [x] `mart_race_performance.sql` -- race history, PR tracking, pace analysis, readiness context
 
 #### Data Quality
 
 - [x] Schema tests across all layers (not_null, unique, accepted_values, relationships)
-- [x] High test pass rate (46/47 on initial run)
+- [x] 171 tests, 97-100% pass rate
 - [x] Race detection bug fixed (event_type-first, removed distance-based false positives)
 
-#### Critical schema facts (for reference in future sessions)
+#### Critical schema facts (do not guess these column names)
 
 ```
 mart_training_summary:    week_start_date, total_distance_km, total_training_load,
@@ -81,7 +82,7 @@ mart_training_summary:    week_start_date, total_distance_km, total_training_loa
                           pct_zone4_threshold, pct_zone5_max,
                           rolling_4wk_avg_distance_km, rolling_4wk_avg_training_load
 
-mart_health_trends:       date (not health_date), total_sleep_hours, hrv_numeric,
+mart_health_trends:       date (NOT health_date), total_sleep_hours, hrv_numeric,
                           resting_heart_rate, average_stress_level,
                           recovery_score, training_readiness
 
@@ -93,63 +94,70 @@ mart_race_performance:    race_date, race_distance_category,
 
 ---
 
-### Phase 3: Streamlit Dashboard (COMPLETED ✓)
+### Phase 3: Streamlit Dashboard (COMPLETE)
 
 #### Infrastructure
 
 - [x] Separate virtual environment `venv_streamlit` with Streamlit 1.45.0
   - Downgraded from 1.54.0 to fix DuckDB 1.4.4 Arrow serialisation error
   - All pages use `st.session_state` instead of `@st.cache_data`
+  - Date columns normalised to `datetime.date` via `_normalize_dates(df)` on every query
 - [x] Modular architecture:
-  - `utils/database.py` — data loading functions (fetchall() pattern, no Arrow)
-  - `utils/formatting.py` — pace, time, distance formatters
-  - `utils/constants.py` — Garmin-inspired colour palette, HR zones, activity types
-  - `components/metrics.py` — reusable metric cards
-  - `components/charts.py` — reusable Plotly chart components
+  - `utils/database.py` -- data loading functions (fetchall() pattern, no Arrow)
+  - `utils/formatting.py` -- pace, time, distance formatters
+  - `utils/constants.py` -- Garmin-inspired colour palette, HR zones, activity types
+  - `components/metrics.py` -- reusable metric cards
+  - `components/charts.py` -- reusable Plotly chart components
 
 #### Pages Built
 
-- [x] `0_📊_Dashboard.py` — home page (light theme, gradient hero, all-time stats, recovery badge)
-- [x] `pages/1_📈_Training_Analysis.py` — training load, pace, HR zones, scatter
-- [x] `pages/2_🏃_Race_Performance.py` — race history, PRs, pace progression
-- [x] `pages/3_❤️_Health.py` — sleep, HRV, stress, Body Battery, recovery score
+- [x] `0_Dashboard.py` -- home page (light theme, gradient hero, all-time stats, recovery badge)
+- [x] `pages/1_Training_Analysis.py` -- training load, pace, HR zones, scatter
+- [x] `pages/2_Race_Performance.py` -- race history, PRs, pace progression
+- [x] `pages/3_Health.py` -- sleep, HRV, stress, Body Battery, recovery score
 
 #### Known data limitation
 
-Health data only goes back to Feb 8, 2026. To sync more history:
+Health data only goes back to ~February 2026. To sync more history:
 
 ```bash
-python -m ingestion.ingest_garmin --days 90
+python -m ingestion.ingest_garmin --days 365
 cd dbt_project && dbt run
 ```
 
 ---
 
-### Phase 4: AI Coach Integration (COMPLETED ✓)
+### Phase 4: AI Coach Integration (COMPLETE)
 
 #### Architecture decisions
 
-- **Interaction mode**: One-shot analysis (Generate button → full report)
-- **Context window**: Last 4 weeks training + last 7 days health
+- **Interaction mode**: One-shot analysis (Generate button -> full report)
+- **Context window**: Last 4 weeks training + last 7 days health + current weather (Open-Meteo)
 - **Alerts**: Deterministic thresholds computed locally (no API cost), shown above LLM response
 - **Language**: English throughout
 - **Pedagogy**: Expander showing exact context sent to Claude (portfolio-friendly)
-- **Jargon rule**: All technical terms must be explained inline on first use
+- **Jargon rule**: All technical terms explained inline on first use
 
 #### Files created
 
 - [x] `ai_engine/__init__.py`
-- [x] `ai_engine/llm_analyzer.py` — core engine with three responsibilities:
-  - `build_coaching_context()` — aggregates 3 DataFrames into a typed dataclass
-  - `calculate_alerts()` — 5 deterministic checks (ACWR, HRV trend, sleep, recovery, goal gap)
-  - `get_coaching_analysis()` — calls Claude API, returns `(markdown, model_name)` tuple
-- [x] `ai_engine/prompts/coach_analysis.txt` — system prompt enforcing 4-section structure + jargon rule
-- [x] `streamlit_app/pages/4_🤖_AI_Coach.py` — Streamlit page (inputs → alerts → expander → LLM response)
+- [x] `ai_engine/llm_analyzer.py` -- core engine with three responsibilities:
+  - `build_coaching_context()` -- aggregates 3 DataFrames into a typed dataclass
+  - `calculate_alerts()` -- 5 deterministic checks (ACWR, HRV trend, sleep, recovery, goal gap)
+  - `get_coaching_analysis()` -- calls Claude API, returns `(markdown, model_name)` tuple
+- [x] `ai_engine/prompts/coach_analysis.txt` -- system prompt enforcing 4-section structure + jargon rule
+- [x] `streamlit_app/pages/4_AI_Coach.py` -- Streamlit page (inputs -> alerts -> expander -> LLM response)
+
+#### Enhancements added after initial implementation
+
+- [x] **Weather integration** -- Open-Meteo API added to coaching context (temperature, precipitation,
+      wind) so Claude can factor environmental conditions into recommendations.
+- [x] **Saved analyses** -- AI coaching reports are persisted across sessions for review.
 
 #### Key technical learnings
 
 - `database.py` uses `fetchall()` which returns all columns as Python `object` dtype.
-  `.mean()` on object-dtype string columns concatenates instead of averaging.
+  `.mean()` on object-dtype columns concatenates instead of averaging.
   Fix: `_col_mean()` helper uses `pd.to_numeric(..., errors="coerce")` before `.mean()`.
 - `load_dotenv()` must be called at module import time, not inside the function,
   to ensure `ANTHROPIC_API_KEY` is in `os.environ` before the Anthropic client is instantiated.
@@ -157,183 +165,160 @@ cd dbt_project && dbt run
 - `get_coaching_analysis()` returns a `tuple[str, str]` (response, model_name) so the
   Streamlit footer can display exactly which model version generated the analysis.
 
-#### Real column names (fixed during Phase 4)
-
-- `mart_training_summary.avg_pace_min_per_km` (not `average_pace_min_per_km`)
-- `mart_race_performance.pace_min_per_km` (not `average_pace_min_per_km`)
-
 #### ACWR thresholds used for alerts
 
-- < 0.8: under-training (no alert — positive signal noted in LLM context)
-- 0.8–1.3: optimal zone (no alert)
-- > 1.3: caution 🟡
-- > 1.5: danger 🔴 (high injury risk)
+- < 0.8: under-training (no alert -- positive signal noted in LLM context)
+- 0.8-1.3: optimal zone (no alert)
+- > 1.3: caution
+- > 1.5: danger (high injury risk)
 
 ---
 
-## 🎯 Next Steps — Roadmap
+### Phase 5: Airflow Orchestration (COMPLETE)
 
-### Phase 5: Orchestration with Airflow (COMPLETED ✓)
+#### Architecture decisions
 
-#### What was built
+- **Two DAGs**: `garmin_ingestion` and `dbt_transformation` are separate DAGs linked by `TriggerDagRunOperator`
+  so that dbt can also be triggered independently (e.g. to rebuild transformations without re-fetching data)
+- **dbt inside Docker**: dbt is installed in the Airflow container via `airflow/airflow-requirements.txt`
+  and called as a subprocess with explicit `--profiles-dir` flag
+- **Module mounting**: `ingestion/` and `ai_engine/` folders are mounted at `/opt/airflow/modules/`
+  and added to `sys.path` at task runtime (not at DAG parse time, to avoid import errors)
+- **Credential injection**: env vars from docker-compose override `.env` values inside the container;
+  `GARMIN_SESSION_FILE` is remapped to `/opt/airflow/data/garmin_session.json`
 
-- [x] Docker Compose stack: postgres + airflow-webserver + airflow-scheduler + streamlit
-- [x] `airflow/dags/garmin_ingestion_dag.py` — daily at 6 AM Europe/Paris, fetches last 7 days → DuckDB bronze
-- [x] `airflow/dags/dbt_transformation_dag.py` — `dbt run` + `dbt test`, triggered automatically after ingestion
-- [x] `dbt_project/profiles.yml` — dedicated profiles file for Docker with `env_var('DUCKDB_PATH')`
+#### Files created
 
-#### Key technical learnings (Docker + Airflow)
+- [x] `airflow/dags/garmin_ingestion_dag.py`
+  - Schedule: daily at 6 AM Europe/Paris (`0 6 * * *`)
+  - Task 1: `fetch_garmin_data` -- runs `ingest_garmin_data(days=7)` via `PythonOperator`
+  - Task 2: `trigger_dbt_transformations` -- kicks off `dbt_transformation` DAG on success
+  - Retries once after 5 minutes on failure
+- [x] `airflow/dags/dbt_transformation_dag.py`
+  - Schedule: `None` (triggered only, not scheduled)
+  - Task 1: `dbt_run` -- `dbt run` via subprocess with `_run_dbt_command()` helper
+  - Task 2: `dbt_test` -- `dbt test` via subprocess; runs only if `dbt_run` succeeds
+  - dbt executable located dynamically (`/home/airflow/.local/bin/dbt` -> PATH fallback)
+- [x] `airflow/airflow-requirements.txt` -- includes `dbt-core`, `dbt-duckdb`
 
-- `_PIP_ADDITIONAL_REQUIREMENTS` installs packages at container startup (convenient for dev).
-  Final pinned versions: `dbt-core==1.7.7 dbt-duckdb==1.7.2 garminconnect==0.2.38 loguru==0.7.2 python-dotenv==1.0.1 pydantic>=2.6.0 pydantic-settings>=2.1.0`
-- Garmin Connect blocks direct credential login from Docker IPs (unknown IP detection).
-  Workaround: generate a fresh session on the host, save to `data/garmin_session.json`,
-  the file is available inside the container via the `./data:/opt/airflow/data` volume mount.
-- `garminconnect==0.2.38` requires `pydantic>=2.6.0` (fixes `duplicate parameter name: timestamp_gmt` in garth).
-- `dbt_project/` must be mounted **read-write** (not `:ro`) so dbt can write `logs/dbt.log` and `target/`.
-- `profiles.yml` must live inside `dbt_project/` when using `--profiles-dir /opt/airflow/dbt_project`.
-  The root-level `profiles.yml` is used for local development only.
-- Volume mount changes require `docker-compose down && docker-compose up -d` (not just `restart`).
+#### Key technical learnings
 
-#### Session refresh procedure (when Garmin session expires)
-
-```bash
-source venv/bin/activate
-python3 -c "
-from garminconnect import Garmin
-import json, os
-from dotenv import load_dotenv
-load_dotenv()
-client = Garmin(os.getenv('GARMIN_EMAIL'), os.getenv('GARMIN_PASSWORD'))
-client.login()
-session = client.garth.dumps()
-with open('data/garmin_session.json', 'w') as f:
-    json.dump(session, f)
-print('Session saved!')
-"
-```
+- Import ingestion modules inside task functions (not at DAG parse time): Airflow parses all DAGs
+  on startup; if `from ingestion.ingest_garmin import ...` is at module level, a missing dependency
+  crashes the entire scheduler. Importing inside the callable defers the import to task runtime.
+- `TriggerDagRunOperator` with `reset_dag_run=True` allows the dbt DAG to be re-triggered on the
+  same day without raising a `DagRunAlreadyExists` error.
+- `wait_for_completion=False` on the trigger operator means ingestion completes without waiting for
+  dbt -- the two DAGs run concurrently in Airflow's task graph, which is the intended behaviour.
+- `catchup=False` on both DAGs prevents Airflow from scheduling and running all missed runs
+  since `start_date` when first deployed.
 
 ---
+
+## Next Steps -- Roadmap
 
 ### Phase 6: Advanced Features (Future)
 
 - [ ] Strava integration (alternative/complementary data source)
-- [ ] RAG for running knowledge base (LlamaIndex / LangGraph)
 - [ ] ML injury risk prediction model
-- [ ] Streamlit Cloud deployment (free tier — public portfolio link)
-- [ ] GitHub Actions CI/CD (dbt test on push)
+- [ ] RAG for running knowledge base (LlamaIndex / LangGraph)
+- [ ] Streamlit Cloud deployment (free tier -- public portfolio link)
+- [ ] GitHub Actions CI/CD (dbt test on push, linting)
+- [ ] Email/Slack alert on Airflow pipeline failure
 
 ---
 
-## 📁 Current Project Structure
+## Current Project Structure
 
 ```
 running-performance-analyzer/
-├── .env                              ✅ Configured
-├── .gitignore                        ✅ Configured
-├── docker-compose.yml                ✅ Configured (Airflow ready)
-├── requirements.txt                  ✅ Installed
+├── .env                              Configured
+├── .gitignore                        Configured
+├── docker-compose.yml                Configured (Airflow live)
+├── requirements.txt                  Installed
+├── CONVENTIONS.md                    Naming rules, SQL patterns, patterns to avoid
+├── DECISIONS.md                      Technical decision log with rationale
+├── KNOWN_ISSUES.md                   Bug workarounds and gotchas
 │
-├── ingestion/                        ✅ COMPLETE
+├── ingestion/                        COMPLETE
 │   ├── config.py
 │   ├── utils.py
 │   ├── garmin_connector.py
 │   ├── duckdb_manager.py
-│   ├── ingest_garmin.py
-│   └── test_connector.py
+│   └── ingest_garmin.py
 │
-├── dbt_project/                      ✅ COMPLETE
-│   ├── models/
-│   │   ├── staging/                  ✅ stg_garmin_activities, stg_garmin_health
-│   │   ├── intermediate/             ✅ int_unified_activities
-│   │   └── marts/                    ✅ 4 gold layer marts
-│   └── tests/
+├── dbt_project/                      COMPLETE
+│   └── models/
+│       ├── staging/                  stg_garmin_activities, stg_garmin_health
+│       ├── intermediate/             int_unified_activities
+│       └── marts/                    4 gold layer marts (171 tests)
 │
-├── streamlit_app/                    ✅ COMPLETE
-│   ├── 0_📊_Dashboard.py             ✅ Home page
-│   ├── pages/
-│   │   ├── 1_📈_Training_Analysis.py ✅
-│   │   ├── 2_🏃_Race_Performance.py  ✅
-│   │   ├── 3_❤️_Health.py            ✅
-│   │   └── 4_🤖_AI_Coach.py          ✅
-│   ├── components/
-│   │   ├── metrics.py                ✅
-│   │   └── charts.py                 ✅
-│   └── utils/
-│       ├── database.py               ✅
-│       ├── formatting.py             ✅
-│       └── constants.py              ✅
+├── streamlit_app/                    COMPLETE
+│   ├── 0_Dashboard.py
+│   └── pages/
+│       ├── 1_Training_Analysis.py
+│       ├── 2_Race_Performance.py
+│       ├── 3_Health.py
+│       └── 4_AI_Coach.py
 │
-├── ai_engine/                        ✅ COMPLETE (Phase 4)
-│   ├── __init__.py
+├── ai_engine/                        COMPLETE
 │   ├── llm_analyzer.py
-│   └── prompts/
-│       └── coach_analysis.txt
+│   └── prompts/coach_analysis.txt
 │
-├── airflow/                          ✅ COMPLETE (Phase 5)
+├── airflow/                          COMPLETE (Phase 5)
 │   └── dags/
-│       ├── garmin_ingestion_dag.py   ✅ Daily 6AM, fetches 7 days → bronze
-│       └── dbt_transformation_dag.py ✅ dbt run + dbt test, triggered after ingestion
+│       ├── garmin_ingestion_dag.py   Daily at 6 AM, triggers dbt on success
+│       └── dbt_transformation_dag.py dbt run + dbt test, triggered only
 │
-├── data/
-│   └── duckdb/
-│       └── running_analytics.duckdb  ✅ Active
-│
-└── scripts/
-    └── query_data.py                 ✅
+└── data/duckdb/running_analytics.duckdb
 ```
 
 ---
 
-## 🚀 How to Run
+## How to Run
 
 ```bash
-# Activate Streamlit environment
-source venv_streamlit/bin/activate
+# Activate main environment
+source venv/bin/activate
 
-# Sync latest Garmin data (add --days 90 to backfill health history)
+# Sync latest Garmin data
 python -m ingestion.ingest_garmin --days 7
 
 # Rebuild dbt gold layer
-cd dbt_project && dbt run && cd ..
+cd dbt_project && dbt run && dbt test && cd ..
 
 # Launch dashboard
-streamlit run "streamlit_app/0_📊_Dashboard.py"
-# → http://localhost:8501
+source venv_streamlit/bin/activate
+streamlit run "streamlit_app/0_Dashboard.py"
+# -> http://localhost:8501
+
+# Start Airflow (for automated daily runs)
+docker-compose up -d
+# -> http://localhost:8080
 ```
 
 ---
 
-## 🎓 Success Criteria for Job Applications
+## Success Criteria for Job Applications
 
 Your project now demonstrates:
 
-- ✅ **Analytics Engineering**: dbt medallion architecture, data modelling, testing
-- ✅ **Data Engineering**: Garmin API integration, DuckDB pipeline, incremental loads
-- ✅ **Data Analytics**: SQL aggregations, rolling averages, recovery scoring
-- ✅ **Data Visualisation**: Streamlit + Plotly multi-page dashboard
-- ✅ **AI Engineering**: Claude API integration, prompt engineering, context compression
-- ✅ **Orchestration**: Airflow DAGs, scheduling, Docker Compose
+- **Analytics Engineering**: dbt medallion architecture, data modelling, 171 data quality tests
+- **Data Engineering**: Garmin API integration, DuckDB pipeline, incremental loads
+- **Data Analytics**: SQL aggregations, rolling averages, custom recovery scoring
+- **Data Visualisation**: Streamlit + Plotly multi-page dashboard
+- **AI Engineering**: Claude API integration, prompt engineering, context compression
+- **Orchestration**: Airflow DAGs, scheduling, DAG chaining
 
-### Portfolio talking points (ready to use)
+### Portfolio talking points
 
-- "Built end-to-end data pipeline: Garmin Connect API → DuckDB medallion architecture → dbt transformations → Streamlit dashboard"
-- "Implemented race detection using Garmin's event_type field — fixed false positives that distance-based heuristics produced"
-- "Calculated custom recovery score (0–100) from sleep, HRV, resting HR, stress and Body Battery using dbt SQL"
+- "Built end-to-end data pipeline: Garmin Connect API -> DuckDB medallion architecture -> dbt transformations -> Streamlit dashboard"
+- "Implemented race detection using Garmin's event_type field -- fixed false positives that distance-based heuristics produced"
+- "Calculated custom recovery score (0-100) from sleep, HRV, resting HR, stress and Body Battery using dbt SQL"
 - "Built 5-page interactive analytics dashboard with Plotly charts and Garmin-inspired design"
-- "Resolved Streamlit ↔ DuckDB Arrow serialisation incompatibility by switching to session_state caching"
-- "Integrated Claude API for AI coaching: designed token-efficient context compression (aggregates not raw rows), deterministic alert layer separate from LLM, structured 4-section prompt with jargon policy"
+- "Resolved Streamlit/DuckDB Arrow serialisation incompatibility by switching to session_state caching"
+- "Integrated Claude API for AI coaching: token-efficient context compression, deterministic alert layer separate from LLM, structured 4-section prompt with jargon policy"
+- "Added weather context (Open-Meteo API) to AI coaching so Claude factors environmental conditions into training recommendations"
+- "Built Airflow DAG pipeline: garmin_ingestion triggers dbt_transformation on success, both with retry logic and detailed task logging"
 
 ---
-
-## 💡 Starting the Next Session
-
-Share this file at the start of a new Claude conversation, then say:
-
-```
-I'm working on a running analytics portfolio project.
-Phases 1–4 are complete (Garmin ingestion → dbt → Streamlit dashboard → AI Coach).
-Now I want to build Phase 5: Airflow orchestration.
-
-Here's my NEXT_STEPS.md: [paste this file]
-```
