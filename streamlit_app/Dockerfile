@@ -31,8 +31,16 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
+# Note: ingestion/ is copied so that pages/5_Past_Analyses.py can import
+# DuckDBManager. The full ingestion pipeline is NOT run inside Streamlit —
+# only the database read layer (duckdb_manager.py) is used here.
 COPY streamlit_app/ /app/streamlit_app/
 COPY ai_engine/ /app/ai_engine/
+COPY ingestion/ /app/ingestion/
+
+# Make /app the Python root so that `from ingestion.x import y` and
+# `from ai_engine.x import y` both resolve correctly
+ENV PYTHONPATH=/app
 
 # Create data directory (will be mounted as volume)
 RUN mkdir -p /app/data/duckdb
