@@ -210,6 +210,40 @@ if city_name:
 st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
+# API key input
+# ---------------------------------------------------------------------------
+
+st.subheader("🔑 Your Anthropic API Key")
+
+# Retrieve the key from session state so it persists across widget interactions
+# (Streamlit reruns the script on every interaction — session_state survives reruns).
+# The key is NEVER written to disk, logs, or any persistent storage.
+if "anthropic_api_key" not in st.session_state:
+    st.session_state["anthropic_api_key"] = ""
+
+api_key_input = st.text_input(
+    "Anthropic API key",
+    value=st.session_state["anthropic_api_key"],
+    type="password",
+    placeholder="sk-ant-...",
+    help=(
+        "Your key is used only for this request and is never stored. "
+        "Get yours at console.anthropic.com"
+    ),
+    label_visibility="collapsed",
+)
+
+# Persist the key in session state so it survives widget reruns
+st.session_state["anthropic_api_key"] = api_key_input
+
+st.caption(
+    "🔒 Your key is stored only in your browser session — never on the server. "
+    "[Get a free API key](https://console.anthropic.com)"
+)
+
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
 # Generate button
 # ---------------------------------------------------------------------------
 
@@ -311,7 +345,10 @@ if generate:
 
     with st.spinner("Asking Claude for your personalised analysis… (5–15 seconds)"):
         try:
-            response_md, model_used = get_coaching_analysis(ctx)
+            response_md, model_used = get_coaching_analysis(
+                ctx,
+                api_key=st.session_state.get("anthropic_api_key", ""),
+            )
         except RuntimeError as e:
             st.error(str(e))
             st.stop()
