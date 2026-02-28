@@ -81,13 +81,18 @@ def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
 
     Why this is necessary:
         - ``fetchall()`` returns DuckDB DATE values as ``datetime.date`` objects,
-          but pandas may later infer them as ``pd.Timestamp`` (e.g. after a
-          concat or after session_state round-trips).
+          but pandas may later infer them as ``pd.Timestamp`` depending on the
+          environment (local venv vs Docker vs Streamlit Cloud).
         - ``st.date_input()`` always returns ``datetime.date``.
         - Comparing ``pd.Timestamp >= datetime.date`` raises a ``TypeError``
-          in pandas ≥ 2.0, so we normalise at load time once.
-        - Columns that are already ``datetime.date`` are left untouched
-          (``pd.to_datetime`` handles both strings and existing date objects).
+          in pandas >= 2.0, so we normalise at load time once.
+
+    Strategy:
+        1. Use ``pd.to_datetime()`` to handle any input type (str, date, Timestamp).
+        2. Extract ``.dt.date`` to get plain ``datetime.date`` objects.
+        3. Explicitly cast the column dtype to ``object`` so pandas does not
+           re-infer it as ``datetime64`` on subsequent operations — this is
+           the root cause of the Timestamp vs date mismatch across environments.
 
     Args:
         df: DataFrame freshly built from ``fetchall()``.
@@ -98,9 +103,13 @@ def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
     for col in _DATE_COLUMNS:
         if col not in df.columns:
             continue
-        # pd.to_datetime is robust: handles str, datetime.date, Timestamp, None.
-        # .dt.date extracts the Python datetime.date part, keeping NaT → NaN.
-        df[col] = pd.to_datetime(df[col], errors="coerce").dt.date
+        # Step 1: parse anything (str, datetime.date, Timestamp, None) → Timestamp
+        parsed = pd.to_datetime(df[col], errors="coerce")
+        # Step 2: extract plain datetime.date — NaT becomes None
+        df[col] = parsed.dt.date
+        # Step 3: force object dtype so pandas never re-infers datetime64
+        # This prevents the Timestamp vs datetime.date TypeError in comparisons
+        df[col] = df[col].astype(object)
     return df
 
 

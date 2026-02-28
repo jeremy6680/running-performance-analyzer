@@ -450,7 +450,7 @@ df_display = (
     .sort_values("race_date", ascending=False)
     .rename(columns=available_display_cols)
 )
-df_display["Date"] = pd.to_datetime(df_display["Date"]).dt.strftime("%b %d, %Y")
+df_display["Date"] = pd.to_datetime(df_display["Date"]).apply(lambda d: d.strftime("%b %d, %Y") if pd.notna(d) else "")
 
 if "PR" in df_display.columns:
     df_display["PR"] = df_display["PR"].apply(lambda x: "🥇" if x else "")
@@ -675,7 +675,7 @@ if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().a
         with col_chart:
             fig_ready = go.Figure()
             fig_ready.add_trace(go.Bar(
-                x=df_context["race_date"].dt.strftime("%b %d, %Y"),
+                x=df_context["race_date"].apply(lambda d: d.strftime("%b %d, %Y") if d else ""),
                 y=df_context["race_readiness_score"],
                 marker_color=[
                     COLORS["success"] if v >= 8
@@ -710,7 +710,7 @@ if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().a
             }
             available_ctx = {k: v for k, v in ctx_cols.items() if k in df_context.columns}
             df_ctx_display = df_context[list(available_ctx.keys())].rename(columns=available_ctx).copy()
-            df_ctx_display["Race"] = pd.to_datetime(df_ctx_display["Race"]).dt.strftime("%b %d")
+            df_ctx_display["Race"] = pd.to_datetime(df_ctx_display["Race"]).apply(lambda d: d.strftime("%b %d") if pd.notna(d) else "")
             for col in ["Volume 30d (km)", "Avg Pace 30d", "Pace diff"]:
                 if col in df_ctx_display.columns:
                     df_ctx_display[col] = df_ctx_display[col].round(2)
@@ -725,7 +725,7 @@ if "race_readiness_score" in df.columns and df["race_readiness_score"].notna().a
 with st.expander("🗃️ View full race data", expanded=False):
     if not df.empty:
         df_raw = df.copy()
-        df_raw["race_date"] = df_raw["race_date"].dt.strftime("%b %d, %Y")
+        df_raw["race_date"] = df_raw["race_date"].apply(lambda d: d.strftime("%b %d, %Y") if d else "")
         st.dataframe(df_raw, use_container_width=True, hide_index=True)
         csv = df.to_csv(index=False)
         st.download_button("⬇️ Download as CSV", data=csv, file_name="race_performance.csv", mime="text/csv")

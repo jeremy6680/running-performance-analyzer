@@ -378,7 +378,7 @@ with col_sleep_stages:
         for col in available_stages:
             fig_stages.add_trace(go.Bar(
                 name=stage_labels.get(col, col),
-                x=df_stages["date"].dt.strftime("%a %d"),
+                x=df_stages["date"].apply(lambda d: d.strftime("%a %d") if d else ""),
                 y=df_stages[col],
                 marker_color=stage_colors.get(col, COLORS["muted"]),
                 hovertemplate=f"{stage_labels.get(col, col)}: %{{y:.1f}}h<extra></extra>",
@@ -759,7 +759,7 @@ with st.expander("View raw daily health data", expanded=False):
     ]
     available = [c for c in display_cols if c in df.columns]
     df_raw = df[available].copy().sort_values("date", ascending=False)
-    df_raw["date"] = df_raw["date"].dt.strftime("%b %d, %Y")
+    df_raw["date"] = df_raw["date"].apply(lambda d: d.strftime("%b %d, %Y") if d else "")
     st.dataframe(df_raw, use_container_width=True, hide_index=True)
 
     csv = df[available].to_csv(index=False)
