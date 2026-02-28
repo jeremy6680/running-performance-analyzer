@@ -93,11 +93,79 @@ class AppConfig(BaseSettings):
         extra = "ignore"
 
 
-# Singleton instances for easy import
-garmin_config = GarminConfig()
-strava_config = StravaConfig()
+# ---------------------------------------------------------------------------
+# Singleton instances
+# ---------------------------------------------------------------------------
+# GarminConfig and StravaConfig are instantiated lazily via module-level
+# getters below. This avoids a Pydantic ValidationError on Streamlit Cloud
+# (and any environment without GARMIN_EMAIL / GARMIN_PASSWORD) when other
+# modules import only database_config or app_config.
+#
+# DatabaseConfig and AppConfig have no required fields so they are safe
+# to instantiate eagerly.
+
 database_config = DatabaseConfig()
 app_config = AppConfig()
+
+_garmin_config: Optional[GarminConfig] = None
+_strava_config: Optional[StravaConfig] = None
+
+
+def get_garmin_config() -> GarminConfig:
+    """
+    Return the GarminConfig singleton, instantiating it on first call.
+
+    Raises:
+        pydantic_core.ValidationError: if GARMIN_EMAIL or GARMIN_PASSWORD
+            are not set in the environment.
+    """
+    global _garmin_config
+    if _garmin_config is None:
+        _garmin_config = GarminConfig()
+    return _garmin_config
+
+
+def get_strava_config() -> StravaConfig:
+    """Return the StravaConfig singleton, instantiating it on first call."""
+    global _strava_config
+    if _strava_config is None:
+        _strava_config = StravaConfig()
+    return _strava_config
+
+
+# Legacy aliases — kept for backwards compatibility with existing code that
+# does `from ingestion.config import garmin_config`. They are now properties
+# of a small proxy object so the ValidationError is deferred until access.
+class _LazyConfig:
+    """Proxy that instantiates GarminConfig / StravaConfig on first attribute access."""
+
+    @property
+    def garmin(self) -> GarminConfig:
+        return get_garmin_config()
+
+    @property
+    def strava(self) -> StravaConfig:
+        return get_strava_config()
+
+
+# Direct module-level names for callers that do:
+#   from ingestion.config import garmin_config
+# The object is now a lazy wrapper — attribute access triggers instantiation.
+garmin_config = _LazyConfig().garmin if False else type(
+    "_LazyGarmin", (),
+    {
+        "__getattr__": lambda self, name: getattr(get_garmin_config(), name),
+        "__repr__": lambda self: repr(get_garmin_config()),
+    }
+)()
+
+strava_config = type(
+    "_LazyStrava", (),
+    {
+        "__getattr__": lambda self, name: getattr(get_strava_config(), name),
+        "__repr__": lambda self: repr(get_strava_config()),
+    }
+)()
 
 
 def validate_config() -> bool:
