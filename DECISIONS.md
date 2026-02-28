@@ -116,6 +116,32 @@ A log of important technical choices and the reasoning behind each one.
 
 ---
 
+## Deployment
+
+### Bring-your-own-key for the AI Coach on Streamlit Cloud
+
+**Decision**: The Anthropic API key is never stored server-side. Users enter their own key at runtime via a `st.text_input(type="password")` field. The key lives only in `st.session_state` for the duration of the browser session.
+
+**Why**: Storing a server-side API key on Streamlit Cloud would expose it to anyone with the app URL, with no rate limiting. Asking users to bring their own key eliminates financial risk entirely, keeps the demo freely accessible for everyone else, and is a stronger portfolio signal — it shows awareness of security trade-offs in multi-user deployments.
+
+---
+
+### Three-tier requirements file structure
+
+**Decision**: Split Python dependencies across three files: `requirements.txt` (Streamlit Cloud runtime), `requirements-pipeline.txt` (ingestion, dbt, Airflow), and `requirements-dev.txt` (everything + dev tooling).
+
+**Why**: Streamlit Cloud reads `requirements.txt` from the repo root and installs it verbatim. The previous monolithic file included Airflow, dbt, garminconnect, and great-expectations — packages that either conflict with the Streamlit Cloud environment or are simply unnecessary there. Splitting by concern keeps each environment lean and documents intent clearly: you know what is needed where just by reading the filename.
+
+---
+
+### Lazy instantiation of `GarminConfig` and `StravaConfig`
+
+**Decision**: `GarminConfig` and `StravaConfig` are no longer instantiated at module level. They are created on first access via `get_garmin_config()` and `get_strava_config()` getter functions. `DatabaseConfig` and `AppConfig` (which have no required fields) remain eagerly instantiated.
+
+**Why**: Pydantic `BaseSettings` validates required fields immediately on instantiation. `GarminConfig` requires `GARMIN_EMAIL` and `GARMIN_PASSWORD`. Any module that imports `from ingestion.config import database_config` would previously trigger `GarminConfig()` as a side effect, crashing with a `ValidationError` in any environment without Garmin credentials — including Streamlit Cloud, CI pipelines, and read-only dashboard deployments. Lazy instantiation defers the validation to the moment the credentials are actually needed.
+
+---
+
 ## Tooling
 
 ### Two separate virtual environments (`venv` and `venv_streamlit`)
