@@ -80,27 +80,44 @@ def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
     Convert any known date column present in *df* to ``datetime.date``.
 
     Why this is necessary:
-        - ``fetchall()`` returns DuckDB DATE values as ``datetime.date`` objects,
-          but pandas may later infer them as ``pd.Timestamp`` (e.g. after a
-          concat or after session_state round-trips).
+        - DuckDB DATE columns arrive as ``datetime.date``, ``pd.Timestamp``,
+          or strings depending on the environment (local venv, Docker,
+          Streamlit Cloud / Python 3.13).
         - ``st.date_input()`` always returns ``datetime.date``.
-        - Comparing ``pd.Timestamp >= datetime.date`` raises a ``TypeError``
-          in pandas ≥ 2.0, so we normalise at load time once.
-        - Columns that are already ``datetime.date`` are left untouched
-          (``pd.to_datetime`` handles both strings and existing date objects).
+        - Comparing ``pd.Timestamp >= datetime.date`` raises ``TypeError``
+          in pandas >= 2.0.
 
-    Args:
-        df: DataFrame freshly built from ``fetchall()``.
+    Strategy — convert via string to break all pandas type inference:
+        1. Convert each value to an ISO string ("YYYY-MM-DD") using Python,
+           bypassing pandas entirely.
+        2. Parse the string back to ``datetime.date`` with ``date.fromisoformat``.
+        3. Store as object dtype list — pandas cannot re-infer this as datetime64.
 
-    Returns:
-        The same DataFrame with date columns cast to ``datetime.date``.
+    This is intentionally low-tech: it works identically on every Python /
+    pandas / DuckDB version combination we've encountered.
     """
+    from datetime import date as _date
+
+    def _to_date(val):
+        """Convert any date-like value to datetime.date, or None if invalid."""
+        if val is None:
+            return None
+        if isinstance(val, _date) and not isinstance(val, pd.Timestamp):
+            # Already a plain datetime.date — return as-is
+            return val
+        try:
+            # Handles pd.Timestamp, datetime.datetime, and strings
+            return pd.Timestamp(val).date()
+        except Exception:
+            return None
+
     for col in _DATE_COLUMNS:
         if col not in df.columns:
             continue
-        # pd.to_datetime is robust: handles str, datetime.date, Timestamp, None.
-        # .dt.date extracts the Python datetime.date part, keeping NaT → NaN.
-        df[col] = pd.to_datetime(df[col], errors="coerce").dt.date
+        # Apply row-by-row via a Python list comprehension — never goes through
+        # pandas type inference, so the result is always object dtype containing
+        # plain datetime.date (or None) values.
+        df[col] = [_to_date(v) for v in df[col]]
     return df
 
 

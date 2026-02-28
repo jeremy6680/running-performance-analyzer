@@ -21,14 +21,10 @@ from typing import Optional
 
 import anthropic
 import pandas as pd
-from dotenv import load_dotenv
 from loguru import logger
 
-# Load .env from the project root (two levels up from ai_engine/).
-# This ensures ANTHROPIC_API_KEY is available regardless of how the app is launched.
-# override=False means existing shell env variables take precedence.
-_env_path = Path(__file__).resolve().parents[1] / ".env"
-load_dotenv(_env_path, override=False)
+# Note: no dotenv loading here — the API key is passed explicitly as a parameter
+# to get_coaching_analysis() so it never needs to be stored on disk.
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +398,7 @@ GOAL
 # Claude API call
 # ---------------------------------------------------------------------------
 
-def get_coaching_analysis(ctx: CoachingContext) -> tuple[str, str]:
+def get_coaching_analysis(ctx: CoachingContext, api_key: str) -> tuple[str, str]:
     """
     Send the athlete context to Claude and return the markdown response.
 
@@ -410,7 +406,11 @@ def get_coaching_analysis(ctx: CoachingContext) -> tuple[str, str]:
     four-section response format that Streamlit will render directly.
 
     Args:
-        ctx: Populated CoachingContext from build_coaching_context()
+        ctx:     Populated CoachingContext from build_coaching_context()
+        api_key: Anthropic API key provided by the user at runtime.
+                 Passed explicitly so the key is never stored on disk or in
+                 environment variables — it lives only in st.session_state
+                 for the duration of the browser session.
 
     Returns:
         Tuple of (markdown_response, model_name) so the Streamlit page can
@@ -429,15 +429,14 @@ def get_coaching_analysis(ctx: CoachingContext) -> tuple[str, str]:
     logger.info(f"Calling Claude API for coaching analysis — goal: {ctx.goal_distance}, "
                 f"{ctx.weeks_to_race} weeks out")
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
+    if not api_key or not api_key.strip():
         raise RuntimeError(
-            "ANTHROPIC_API_KEY not found. "
-            "Make sure it is set in your .env file at the project root."
+            "No API key provided. "
+            "Please enter your Anthropic API key in the field above."
         )
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key.strip())
 
         message = client.messages.create(
             model="claude-opus-4-6",          # best reasoning for coaching nuance
@@ -455,7 +454,7 @@ def get_coaching_analysis(ctx: CoachingContext) -> tuple[str, str]:
 
     except anthropic.AuthenticationError:
         logger.error("Invalid Anthropic API key")
-        raise RuntimeError("Invalid API key. Check your ANTHROPIC_API_KEY in .env")
+        raise RuntimeError("Invalid API key. Please check the key you entered.")
     except anthropic.RateLimitError:
         logger.error("Anthropic rate limit reached")
         raise RuntimeError("API rate limit reached. Please wait a moment and try again.")

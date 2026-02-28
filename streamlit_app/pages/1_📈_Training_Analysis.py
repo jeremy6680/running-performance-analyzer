@@ -996,7 +996,7 @@ with st.expander("🗃️ View raw weekly data", expanded=False):
     if not df_summary_filtered.empty:
 
         display_df = df_summary_filtered.copy()
-        display_df["week_start_date"] = display_df["week_start_date"].dt.strftime("%b %d, %Y")
+        display_df["week_start_date"] = display_df["week_start_date"].apply(lambda d: d.strftime("%b %d, %Y") if d else "")
 
         round_cols = {
             "total_distance_km":    1,
