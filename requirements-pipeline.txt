@@ -1,0 +1,53 @@
+# =============================================================================
+# Pipeline dependencies — ingestion, dbt, Airflow
+# =============================================================================
+#
+# Contains everything needed to run the full data pipeline:
+#   - Garmin Connect API ingestion
+#   - dbt transformations
+#   - Apache Airflow orchestration
+#
+# Install with:
+#   pip install -r requirements.txt -r requirements-pipeline.txt
+#
+# Used by:
+#   - Local development (full pipeline)
+#   - Docker Compose (Airflow containers)
+#   - requirements-dev.txt (via -r include)
+# =============================================================================
+
+# --- Data ingestion ---
+garminconnect==0.2.13
+stravalib==1.6.0           # optional — Strava integration
+httpx==0.26.0
+python-dateutil==2.8.2
+pytz==2024.1
+numpy==1.26.3
+
+# --- dbt ---
+dbt-core==1.7.7
+dbt-duckdb==1.7.2
+
+# --- Airflow ---
+apache-airflow==2.8.1
+apache-airflow-providers-common-sql==1.10.0
+
+# --- LangChain (future RAG phase) ---
+langchain==0.1.6
+langchain-anthropic==0.1.4
+langchain-community==0.0.19
+
+# --- Utilities ---
+tqdm==4.66.1
+PyYAML==6.0.1
+orjson==3.9.13
+ujson==5.9.0
+urllib3==2.2.0
+cryptography==42.0.2
+python-decouple==3.8
+scipy==1.12.0
+openpyxl==3.1.2
+csvkit==1.4.0
+sqlalchemy==2.0.25
+great-expectations==0.18.8
+jsonschema==4.21.1

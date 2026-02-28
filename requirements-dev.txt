@@ -3,8 +3,10 @@
 # Install with: pip install -r requirements-dev.txt
 # (after installing requirements.txt)
 
-# Include base requirements
+# Include base requirements (Streamlit runtime)
 -r requirements.txt
+# Include pipeline requirements (ingestion, dbt, Airflow)
+-r requirements-pipeline.txt
 
 # =============================================================================
 # TESTING
