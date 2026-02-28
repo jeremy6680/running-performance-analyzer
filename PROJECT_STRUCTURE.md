@@ -19,7 +19,9 @@ running-performance-analyzer/
 |-- docker-compose.yml                     # Airflow + service orchestration
 |-- .env.example                           # Environment variable template (copy to .env)
 |-- .gitignore                             # Git exclusions (credentials, data, venvs)
-|-- requirements.txt                       # Main Python dependencies (ingestion + dbt)
+|-- requirements.txt                       # Streamlit Cloud runtime deps (minimal)
+|-- requirements-pipeline.txt              # Pipeline deps: ingestion, dbt, Airflow
+|-- requirements-dev.txt                   # All deps + dev tools (includes the two above)
 |
 |-- ingestion/                             # DATA INGESTION LAYER
 |   |-- __init__.py

@@ -79,6 +79,26 @@ Known bugs, unresolved behaviors, and points to monitor. Investigated once — d
 
 ---
 
+## Deployment
+
+### `GarminConfig` raises Pydantic `ValidationError` on import without credentials
+
+**Symptom**: Pages that import `from ingestion.config import database_config` crash on Streamlit Cloud with a `pydantic_core.ValidationError` even though they don't use Garmin credentials.
+**Root cause**: `GarminConfig()` was instantiated at module level in `ingestion/config.py`. Pydantic validates required fields (`GARMIN_EMAIL`, `GARMIN_PASSWORD`) immediately on instantiation — even on an indirect import.
+**Fix**: `GarminConfig` and `StravaConfig` are now lazy-instantiated via `get_garmin_config()` / `get_strava_config()`. `DatabaseConfig` and `AppConfig` (no required fields) remain eager.
+**Status**: Fixed. If you add new required fields to any config class, make sure the class is lazy or provide defaults.
+
+---
+
+### `.dt.strftime()` raises `AttributeError` on `datetime.date` columns in Python 3.13
+
+**Symptom**: Pages crash with `AttributeError: Can only use .dt accessor with datetimelike values` on Streamlit Cloud (Python 3.13) but work locally (Python 3.11).
+**Root cause**: After `_normalize_dates()` converts DuckDB date columns to `datetime.date` (object dtype), pandas' `.dt` accessor is no longer available. Python 3.13 / pandas 2.x enforces this more strictly than 3.11.
+**Fix**: Replace `.dt.strftime(fmt)` with `.apply(lambda d: d.strftime(fmt) if d else "")` for all date columns normalized by `_normalize_dates()`.
+**Status**: Fixed in pages 1, 2, 3. If you add new date formatting in a page, use `.apply()` not `.dt.strftime()`.
+
+---
+
 ## AI Coach
 
 ### `_col_mean()` silently returns `None` on object-dtype columns

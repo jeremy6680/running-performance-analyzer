@@ -217,14 +217,40 @@ cd dbt_project && dbt run
 
 ## Next Steps -- Roadmap
 
-### Phase 6: Advanced Features (Future)
+### Phase 6: Deployment (IN PROGRESS)
 
+#### Streamlit Cloud (COMPLETE)
+
+- [x] Deployed at https://running-performance-analyzer.streamlit.app/
+- [x] Bring-your-own-key AI Coach: `ANTHROPIC_API_KEY` removed from server-side env,
+      entered by the user at runtime via `st.text_input(type="password")`,
+      stored only in `st.session_state` for the duration of the session
+- [x] `requirements.txt` (root) replaced with minimal Streamlit Cloud runtime deps
+- [x] `requirements-pipeline.txt` created for ingestion / dbt / Airflow dependencies
+- [x] `requirements-dev.txt` updated to include both via `-r` directives
+- [x] `ingestion/config.py`: `GarminConfig` and `StravaConfig` lazy-instantiated
+      via `get_garmin_config()` / `get_strava_config()` to avoid Pydantic
+      `ValidationError` on import in environments without Garmin credentials
+- [x] `config.toml`: removed hardcoded `serverAddress`/`serverPort`,
+      disabled `showErrorDetails` for production
+- [x] Fixed `.dt.strftime()` calls on `datetime.date` columns (pages 1, 2, 3)
+      replaced with `.apply(lambda d: d.strftime(...))` — `.dt` accessor is not
+      available on object-dtype date columns in pandas >= 2.0 / Python 3.13
+
+#### Hetzner VPS + Coolify (TODO)
+
+- [ ] Deploy full Docker Compose stack (Airflow + Streamlit) on Hetzner VPS
+- [ ] Configure subdomain via Coolify reverse proxy
+- [ ] Live pipeline: Airflow runs daily, DuckDB updated in real time
+- [ ] Protect Airflow UI (not exposed publicly)
+
+### Phase 7: Advanced Features (Future)
+
+- [ ] GitHub Actions CI/CD (dbt test on push, linting)
+- [ ] Email/Slack alert on Airflow pipeline failure
 - [ ] Strava integration (alternative/complementary data source)
 - [ ] ML injury risk prediction model
 - [ ] RAG for running knowledge base (LlamaIndex / LangGraph)
-- [ ] Streamlit Cloud deployment (free tier -- public portfolio link)
-- [ ] GitHub Actions CI/CD (dbt test on push, linting)
-- [ ] Email/Slack alert on Airflow pipeline failure
 
 ---
 

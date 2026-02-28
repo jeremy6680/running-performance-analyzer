@@ -142,6 +142,15 @@ looking for a real-world portfolio project.
 
 ---
 
+## Live Demo
+
+🚀 **[running-performance-analyzer.streamlit.app](https://running-performance-analyzer.streamlit.app/)**
+
+The dashboard is powered by a real DuckDB dataset from my own Garmin account.
+The AI Coach page requires your own [Anthropic API key](https://console.anthropic.com) — enter it directly in the UI, it is never stored server-side.
+
+---
+
 ## Getting Started
 
 See **[SETUP_GUIDE.md](SETUP_GUIDE.md)** for full installation instructions.
@@ -164,7 +173,7 @@ cd dbt_project && dbt run && cd ..
 
 # 4. Launch dashboard
 source venv_streamlit/bin/activate
-streamlit run "streamlit_app/0_Dashboard.py"
+streamlit run "streamlit_app/0_📊_Dashboard.py"
 # Open http://localhost:8501
 ```
 
@@ -219,13 +228,15 @@ SELECT * FROM mart_training_summary ORDER BY week_start_date DESC LIMIT 10;
 - [x] Airflow DAG for dbt run + dbt test (triggered on ingestion success)
 - [ ] Failure alerting (email/Slack) -- Phase 6
 
-### Phase 6: Advanced Features (Future)
+### Phase 6: Deployment & Advanced Features (In Progress)
 
+- [x] Streamlit Cloud deployment → [running-performance-analyzer.streamlit.app](https://running-performance-analyzer.streamlit.app/)
+- [x] Bring-your-own-key AI Coach (no server-side API key stored)
+- [ ] Hetzner VPS deployment with Coolify (live pipeline + real-time data)
+- [ ] GitHub Actions CI/CD (dbt test on push, linting)
 - [ ] Strava integration
 - [ ] ML injury risk prediction
 - [ ] RAG for running knowledge base (LlamaIndex / LangGraph)
-- [ ] Streamlit Cloud deployment
-- [ ] GitHub Actions CI/CD
 
 ---
 
