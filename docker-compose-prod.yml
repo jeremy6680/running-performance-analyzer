@@ -1,324 +1,309 @@
-version: "3.8"
-
 # =============================================================================
-# Running Performance Analyzer — Coolify Production Configuration
-# Hetzner VPS + Coolify (Traefik reverse proxy + Let's Encrypt SSL)
+# docker-compose-prod.yml
+# Running Performance Analyzer — Production Stack (Hetzner VPS / Coolify)
 #
-# This file is used by Coolify directly (single file, no override needed).
-# It replaces docker-compose.yml for production deployment.
+# Services:
+#   postgres     → Airflow metadata database
+#   airflow-init → One-shot: DB migrations + user creation + log dir fix
+#   airflow-scheduler → Runs DAGs on schedule
+#   airflow-webserver → Airflow UI (protected behind Coolify / Traefik)
+#   streamlit    → Dashboard (public-facing)
 #
-# Required environment variables (set in Coolify UI, never here):
-#   GARMIN_EMAIL, GARMIN_PASSWORD
-#   ANTHROPIC_API_KEY
-#   AIRFLOW_FERNET_KEY
-#   AIRFLOW_ADMIN_USERNAME, AIRFLOW_ADMIN_PASSWORD, AIRFLOW_ADMIN_EMAIL
-#   AIRFLOW_BASICAUTH_USERS   (htpasswd format, $ escaped as $$)
-#   STREAMLIT_DOMAIN          (e.g. app.tondomaine.com)
-#   AIRFLOW_DOMAIN            (e.g. airflow.tondomaine.com)
-#   AIRFLOW_UID               (run: id -u on the VPS)
-#   TIMEZONE                  (e.g. Europe/Paris)
+# Usage (on the VPS, via Coolify or direct SSH):
+#   docker compose -f docker-compose-prod.yml up -d
 #
-# Before first deploy:
-#   1. Point DNS A records to the VPS IP:
-#        app.tondomaine.com     → <IP_VPS>
-#        airflow.tondomaine.com → <IP_VPS>
-#   2. Generate Garmin session on the VPS host (see SETUP_GUIDE.md)
-#   3. Create data directories on VPS:
-#        mkdir -p /data/running-analyzer/{data/duckdb,data/raw,data/exports}
+# First boot only — watch init logs:
+#   docker compose -f docker-compose-prod.yml logs -f airflow-init
 # =============================================================================
 
-# =============================================================================
-# SHARED AIRFLOW CONFIGURATION
-# =============================================================================
-x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.1-python3.11
+x-airflow-common:
+  # Shared config block — every Airflow service inherits this via <<: *airflow-common
+  # Avoids duplication across webserver / scheduler / init
+  &airflow-common
+  image: apache/airflow:2.9.2-python3.11
+  user: "50000:0" # UID 50000 = "airflow" inside the official image
 
   environment:
-    # Extra packages installed at container startup
-    # (for production, consider building a custom image for faster startup)
-    _PIP_ADDITIONAL_REQUIREMENTS: >-
-      dbt-core==1.7.7
-      dbt-duckdb==1.7.2
-      garminconnect==0.2.38
-      loguru==0.7.2
-      python-dotenv==1.0.1
-      pydantic>=2.6.0
-      pydantic-settings>=2.1.0
-
-    # Airflow core settings
+    # --- Core Airflow settings ---
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__CORE__DEFAULT_TIMEZONE: ${TIMEZONE:-Europe/Paris}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
 
-    # Airflow API
-    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+    # --- Database connection (points to the postgres service below) ---
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
 
-    # Airflow webserver
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
-    AIRFLOW__WEBSERVER__RBAC: "true"
+    # --- Webserver settings ---
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false" # Never expose config in prod
 
-    # Logging
+    # --- Logging: write to /opt/airflow/logs (the shared volume) ---
+    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
 
-    # Variables accessible in DAGs
-    DUCKDB_PATH: /opt/airflow/data/duckdb/running_analytics.duckdb
+    # --- Scheduler ---
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+
+    # --- Python path so DAGs can import ingestion/ modules ---
+    PYTHONPATH: /opt/airflow/modules
+
+    # --- App credentials passed into the container ---
+    # These override any .env values inside the container at task runtime
     GARMIN_EMAIL: ${GARMIN_EMAIL}
     GARMIN_PASSWORD: ${GARMIN_PASSWORD}
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    GARMIN_SESSION_FILE: /opt/airflow/data/garmin_session.json
+    DUCKDB_PATH: /opt/airflow/data/running_analytics.duckdb
 
   volumes:
-    # Coolify clones the repo into the working directory at deploy time.
-    # Relative paths work because Coolify sets the working directory to the
-    # repo root before running docker-compose.
+    # DAGs folder (mounted so you can update DAGs without rebuilding the image)
     - ./airflow/dags:/opt/airflow/dags
-    - ./airflow/logs:/opt/airflow/logs
-    - ./airflow/plugins:/opt/airflow/plugins
-    - ./airflow/requirements.txt:/opt/airflow/requirements.txt:ro
-    - ./data:/opt/airflow/data
-    - ./ingestion:/opt/airflow/modules/ingestion:ro
-    - ./ai_engine:/opt/airflow/modules/ai_engine:ro
-    # read-write: dbt writes logs/dbt.log and target/ at runtime
+
+    # Shared logs volume — all Airflow services write here
+    - airflow_logs:/opt/airflow/logs
+
+    # Python modules: ingestion/ and ai_engine/ available inside the container
+    - ./ingestion:/opt/airflow/modules/ingestion
+    - ./ai_engine:/opt/airflow/modules/ai_engine
+
+    # dbt project folder — used by the dbt_transformation_dag
     - ./dbt_project:/opt/airflow/dbt_project
 
-    # Garmin session file — generated once on the VPS host before first deploy.
-    # Must exist at this path before starting the stack.
-    - /data/running-analyzer/garmin_session:/opt/airflow/garmin_session
+    # Persistent data directory (DuckDB file + Garmin session)
+    - airflow_data:/opt/airflow/data
 
-  user: "${AIRFLOW_UID:-50000}:0"
+    # Airflow requirements (dbt-core, dbt-duckdb, garminconnect, etc.)
+    - ./airflow/airflow-requirements.txt:/opt/airflow/airflow-requirements.txt
 
   depends_on:
     postgres:
       condition: service_healthy
 
-  restart: always
-
-  networks:
-    - default
-    # Connect to Coolify's Traefik network so the reverse proxy can reach
-    # Airflow webserver. Other services (scheduler, init) don't need it.
-    # We add it to the anchor here for simplicity; Traefik ignores services
-    # without the traefik.enable=true label.
-    - coolify
-
 # =============================================================================
 # SERVICES
 # =============================================================================
+
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL — Airflow metadata database
-  # Internal only: no ports exposed, never accessible from outside Docker network
+  # POSTGRES — Airflow metadata database
+  # NOT used by the running analytics pipeline (that uses DuckDB).
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
-    container_name: running_analyzer_postgres
+    container_name: rpa_postgres
 
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
 
     volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
+      # Named volume so the DB survives container restarts
+      - postgres_data:/var/lib/postgresql/data
 
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      # Airflow services wait for this before starting
+      test:
+        ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
       interval: 10s
-      retries: 5
-      start_period: 5s
-
-    # No ports exposed — only accessible within running_analyzer_network
-    restart: always
-
-    networks:
-      - default
-
-  # ---------------------------------------------------------------------------
-  # Airflow Webserver — UI accessible via Traefik + basic auth
-  # URL: https://<AIRFLOW_DOMAIN>
-  # Protected by: Traefik basic auth (outer) + Airflow login page (inner)
-  # ---------------------------------------------------------------------------
-  airflow-webserver:
-    <<: *airflow-common
-    container_name: running_analyzer_airflow_webserver
-
-    command: webserver
-
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 5
       start_period: 30s
 
-    labels:
-      # Enable Traefik routing for this container
-      - "traefik.enable=true"
+    restart: unless-stopped
 
-      # Route: match requests on the Airflow subdomain
-      - "traefik.http.routers.airflow.rule=Host(`${AIRFLOW_DOMAIN}`)"
-
-      # Entrypoint: HTTPS only (Coolify adds global HTTP→HTTPS redirect)
-      - "traefik.http.routers.airflow.entrypoints=websecure"
-
-      # TLS: Let's Encrypt certificate (managed by Coolify/Traefik)
-      - "traefik.http.routers.airflow.tls=true"
-      - "traefik.http.routers.airflow.tls.certresolver=letsencrypt"
-
-      # Tell Traefik which internal port to forward traffic to
-      - "traefik.http.services.airflow.loadbalancer.server.port=8080"
-
-      # Basic auth middleware — adds an extra login prompt before Airflow UI
-      # Generate with: htpasswd -nb admin yourpassword
-      # Then escape ALL $ as $$ in the value set in Coolify env vars
-      # Example: admin:$$apr1$$xyz$$abc...
-      - "traefik.http.routers.airflow.middlewares=airflow-basicauth"
-      - "traefik.http.middlewares.airflow-basicauth.basicauth.users=${AIRFLOW_BASICAUTH_USERS}"
-
-      # Required for Coolify to know which network Traefik should use
-      - "traefik.docker.network=coolify"
+    # Postgres does NOT need to be publicly accessible —
+    # keep it on the internal Docker network only
+    expose:
+      - "5432"
 
   # ---------------------------------------------------------------------------
-  # Airflow Scheduler — task orchestration, internal only
-  # ---------------------------------------------------------------------------
-  airflow-scheduler:
-    <<: *airflow-common
-    container_name: running_analyzer_airflow_scheduler
-
-    command: scheduler
-
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-
-  # ---------------------------------------------------------------------------
-  # Airflow Init — runs once to initialise DB and create admin user
-  # Coolify will re-run this on each deploy; airflow db init is idempotent
+  # AIRFLOW INIT — runs once, then exits
+  #
+  # What it does (in order):
+  #   1. Installs extra Python packages (dbt, garminconnect, etc.)
+  #   2. Fixes log directory permissions (root cause of your PermissionError)
+  #   3. Runs DB migrations (airflow db upgrade)
+  #   4. Creates the admin user
+  #
+  # Coolify / healthcheck: this service must exit 0 before the others start.
+  # The `condition: service_completed_successfully` in depends_on enforces this.
   # ---------------------------------------------------------------------------
   airflow-init:
     <<: *airflow-common
-    container_name: running_analyzer_airflow_init
+    container_name: rpa_airflow_init
+    user: "0:0" # Must run as root for chown + pip install
 
     entrypoint: /bin/bash
     command:
       - -c
       - |
-        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
+        set -e
 
-        # Initialise Airflow metadata database (safe to run multiple times)
-        airflow db init
+        echo "==> [1/4] Installing extra Python packages..."
+        pip install --quiet --no-cache-dir -r /opt/airflow/airflow-requirements.txt
 
-        # Create admin user (fails silently if user already exists)
-        airflow users create \
-          --username ${AIRFLOW_ADMIN_USERNAME:-admin} \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email ${AIRFLOW_ADMIN_EMAIL:-admin@example.com} \
-          --password ${AIRFLOW_ADMIN_PASSWORD:-admin} || true
+        echo "==> [2/4] Fixing log directory permissions..."
+        # The logs volume is owned by root when first created.
+        # Airflow processes run as UID 50000 and cannot write to it.
+        # chown -R makes UID 50000 the owner of every subdirectory.
+        mkdir -p /opt/airflow/logs/scheduler
+        mkdir -p /opt/airflow/logs/dag_processor_manager
+        chown -R 50000:0 /opt/airflow/logs
+        chmod -R 775 /opt/airflow/logs
+        echo "    Log permissions set."
 
-        # Install additional Python packages from requirements file
-        if [ -f /opt/airflow/requirements.txt ]; then
-          pip install --no-cache-dir -r /opt/airflow/requirements.txt
-        fi
+        echo "==> [3/4] Running Airflow DB migrations..."
+        # Switch back to airflow user for DB operations
+        su -s /bin/bash airflow -c "airflow db upgrade"
 
-        echo "Airflow initialization complete!"
+        echo "==> [4/4] Creating admin user (skipped if already exists)..."
+        su -s /bin/bash airflow -c "
+          airflow users create \
+            --username ${AIRFLOW_ADMIN_USERNAME} \
+            --password ${AIRFLOW_ADMIN_PASSWORD} \
+            --firstname Admin \
+            --lastname User \
+            --role Admin \
+            --email ${AIRFLOW_ADMIN_EMAIL} \
+          || echo 'User already exists — skipping.'
+        "
 
-    environment:
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      _AIRFLOW_DB_UPGRADE: "true"
-      _AIRFLOW_WWW_USER_CREATE: "true"
+        echo "==> Airflow initialization complete!"
 
-    user: "${AIRFLOW_UID:-50000}:0"
+    restart: "no" # Run once and exit — Coolify will not restart it
 
-    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ---------------------------------------------------------------------------
-  # Streamlit App — public dashboard accessible via Traefik
-  # URL: https://<STREAMLIT_DOMAIN>
+  # AIRFLOW SCHEDULER — triggers and monitors DAGs
+  # ---------------------------------------------------------------------------
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: rpa_airflow_scheduler
+
+    command: scheduler
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "airflow",
+          "jobs",
+          "check",
+          "--job-type",
+          "SchedulerJob",
+          "--limit",
+          "1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully # Wait for init to finish
+
+  # ---------------------------------------------------------------------------
+  # AIRFLOW WEBSERVER — Airflow UI
+  #
+  # In Coolify: expose this via a private subdomain with basic auth or
+  # leave it internal (no public port). The port below is container-internal.
+  # ---------------------------------------------------------------------------
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: rpa_airflow_webserver
+
+    command: webserver
+
+    ports:
+      # HOST_PORT:CONTAINER_PORT
+      # Change HOST_PORT if 8080 is already in use on your VPS
+      - "${AIRFLOW_PORT:-8080}:8080"
+
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s # Webserver takes longer to boot than the scheduler
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-scheduler:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # STREAMLIT — Dashboard + AI Coach
+  #
+  # Runs from a dedicated Dockerfile (streamlit.Dockerfile) to keep
+  # the image lean and avoid conflicts with Airflow's Python environment.
   # ---------------------------------------------------------------------------
   streamlit:
+    container_name: rpa_streamlit
+
+    # Build from a dedicated Dockerfile in the project root
     build:
       context: .
-      dockerfile: streamlit_app/Dockerfile
-    container_name: running_analyzer_streamlit
+      dockerfile: streamlit.Dockerfile
+
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
 
     environment:
-      DUCKDB_PATH: /app/data/duckdb/running_analytics.duckdb
-      # ANTHROPIC_API_KEY intentionally omitted — bring-your-own-key in UI
-      # If you want server-side key, add: ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # DuckDB path inside the container (matches the volume mount below)
+      DUCKDB_PATH: /app/data/running_analytics.duckdb
+      # API key — optional (dashboard works without it; AI Coach page requires it)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
     volumes:
-      # Streamlit app code (read-only)
-      - ./streamlit_app:/app/streamlit_app:ro
-
-      # Shared data folder — read-write because Streamlit writes AI analyses to DuckDB
-      - ./data:/app/data
-
-      # AI engine (read-only)
-      - ./ai_engine:/app/ai_engine:ro
-
-    command: streamlit run "streamlit_app/0_📊_Dashboard.py"
+      # Mount the same DuckDB file that Airflow writes to
+      # Both services share the file through this named volume
+      - airflow_data:/app/data
 
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 30s
 
-    restart: always
+    restart: unless-stopped
 
-    networks:
-      - default
-      - coolify
-
-    labels:
-      - "traefik.enable=true"
-
-      # Route: match requests on the Streamlit subdomain
-      - "traefik.http.routers.streamlit.rule=Host(`${STREAMLIT_DOMAIN}`)"
-
-      # Entrypoint: HTTPS only
-      - "traefik.http.routers.streamlit.entrypoints=websecure"
-
-      # TLS: Let's Encrypt
-      - "traefik.http.routers.streamlit.tls=true"
-      - "traefik.http.routers.streamlit.tls.certresolver=letsencrypt"
-
-      # Internal port
-      - "traefik.http.services.streamlit.loadbalancer.server.port=8501"
-
-      # WebSocket support — critical for Streamlit behind a reverse proxy.
-      # Without this header, the dashboard disconnects or freezes after load.
-      - "traefik.http.middlewares.streamlit-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
-      - "traefik.http.routers.streamlit.middlewares=streamlit-headers"
-
-      # Traefik network
-      - "traefik.docker.network=coolify"
+    depends_on:
+      # Streamlit can start independently — it only reads DuckDB, never writes
+      # Add airflow-init here only if you want to guarantee data exists first
+      - postgres # ensures network is up; postgres itself not needed by Streamlit
 
 # =============================================================================
-# VOLUMES
+# NAMED VOLUMES
 # =============================================================================
+
 volumes:
-  postgres-db-volume:
-    driver: local
+  # Airflow metadata DB — survives container restarts
+  postgres_data:
+
+  # Shared log volume — airflow-init, scheduler, and webserver all write here
+  airflow_logs:
+
+  # Persistent data: DuckDB file + Garmin session JSON
+  # Shared between the Airflow pipeline and the Streamlit dashboard
+  airflow_data:
 
 # =============================================================================
 # NETWORKS
+# All services share a single default bridge network created by Compose.
+# Coolify / Traefik will attach its own network on top for reverse proxy routing.
 # =============================================================================
-networks:
-  # Internal network for communication between services
-  default:
-    name: running_analyzer_network
-
-  # Coolify's Traefik network — must be declared as external.
-  # Traefik uses this network to reach our containers.
-  coolify:
-    external: true
