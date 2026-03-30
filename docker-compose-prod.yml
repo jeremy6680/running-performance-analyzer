@@ -255,7 +255,7 @@ services:
 
     build:
       context: .
-      dockerfile: streamlit.Dockerfile
+      dockerfile: streamlit_app/Dockerfile
 
     ports:
       - "${STREAMLIT_PORT:-8501}:8501"
