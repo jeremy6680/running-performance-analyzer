@@ -3,84 +3,15 @@
 # Running Performance Analyzer — Production Stack (Hetzner VPS / Coolify)
 #
 # Services:
-#   postgres     → Airflow metadata database
-#   airflow-init → One-shot: DB migrations + user creation + log dir fix
-#   airflow-scheduler → Runs DAGs on schedule
-#   airflow-webserver → Airflow UI (protected behind Coolify / Traefik)
-#   streamlit    → Dashboard (public-facing)
+#   postgres           → Airflow metadata database
+#   airflow-init       → One-shot: permissions fix + DB migrations + user creation
+#   airflow-scheduler  → Runs DAGs on schedule
+#   airflow-webserver  → Airflow UI (protected behind Coolify / Traefik)
+#   streamlit          → Dashboard (public-facing)
 #
-# Usage (on the VPS, via Coolify or direct SSH):
-#   docker compose -f docker-compose-prod.yml up -d
-#
-# First boot only — watch init logs:
-#   docker compose -f docker-compose-prod.yml logs -f airflow-init
-# =============================================================================
-
-x-airflow-common:
-  # Shared config block — every Airflow service inherits this via <<: *airflow-common
-  # Avoids duplication across webserver / scheduler / init
-  &airflow-common
-  image: apache/airflow:2.9.2-python3.11
-  user: "50000:0" # UID 50000 = "airflow" inside the official image
-
-  environment:
-    # --- Core Airflow settings ---
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-
-    # --- Database connection (points to the postgres service below) ---
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-
-    # --- Webserver settings ---
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false" # Never expose config in prod
-
-    # --- Logging: write to /opt/airflow/logs (the shared volume) ---
-    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
-    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
-
-    # --- Scheduler ---
-    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
-
-    # --- Python path so DAGs can import ingestion/ modules ---
-    PYTHONPATH: /opt/airflow/modules
-
-    # --- App credentials passed into the container ---
-    # These override any .env values inside the container at task runtime
-    GARMIN_EMAIL: ${GARMIN_EMAIL}
-    GARMIN_PASSWORD: ${GARMIN_PASSWORD}
-    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-    GARMIN_SESSION_FILE: /opt/airflow/data/garmin_session.json
-    DUCKDB_PATH: /opt/airflow/data/running_analytics.duckdb
-
-  volumes:
-    # DAGs folder (mounted so you can update DAGs without rebuilding the image)
-    - ./airflow/dags:/opt/airflow/dags
-
-    # Shared logs volume — all Airflow services write here
-    - airflow_logs:/opt/airflow/logs
-
-    # Python modules: ingestion/ and ai_engine/ available inside the container
-    - ./ingestion:/opt/airflow/modules/ingestion
-    - ./ai_engine:/opt/airflow/modules/ai_engine
-
-    # dbt project folder — used by the dbt_transformation_dag
-    - ./dbt_project:/opt/airflow/dbt_project
-
-    # Persistent data directory (DuckDB file + Garmin session)
-    - airflow_data:/opt/airflow/data
-
-    # Airflow requirements (dbt-core, dbt-duckdb, garminconnect, etc.)
-    - ./airflow/airflow-requirements.txt:/opt/airflow/airflow-requirements.txt
-
-  depends_on:
-    postgres:
-      condition: service_healthy
-
-# =============================================================================
-# SERVICES
+# NOTE: YAML anchors (x-* / &anchor / <<: *anchor) have been intentionally
+# removed. Coolify's Docker Compose parser does not support them reliably.
+# Config is duplicated across Airflow services for full compatibility.
 # =============================================================================
 
 services:
@@ -98,11 +29,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
 
     volumes:
-      # Named volume so the DB survives container restarts
       - postgres_data:/var/lib/postgresql/data
 
     healthcheck:
-      # Airflow services wait for this before starting
       test:
         ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
       interval: 10s
@@ -112,27 +41,51 @@ services:
 
     restart: unless-stopped
 
-    # Postgres does NOT need to be publicly accessible —
-    # keep it on the internal Docker network only
     expose:
       - "5432"
 
   # ---------------------------------------------------------------------------
-  # AIRFLOW INIT — runs once, then exits
+  # AIRFLOW INIT — runs once, then exits (restart: no)
   #
-  # What it does (in order):
-  #   1. Installs extra Python packages (dbt, garminconnect, etc.)
-  #   2. Fixes log directory permissions (root cause of your PermissionError)
-  #   3. Runs DB migrations (airflow db upgrade)
-  #   4. Creates the admin user
+  # Runs as root (user: "0:0") to:
+  #   1. Install extra Python packages (dbt, garminconnect, etc.)
+  #   2. Fix log directory ownership (PermissionError root cause)
+  #   3. Run DB migrations
+  #   4. Create the admin user
   #
-  # Coolify / healthcheck: this service must exit 0 before the others start.
-  # The `condition: service_completed_successfully` in depends_on enforces this.
+  # scheduler and webserver use `condition: service_completed_successfully`
+  # so they never start before this service exits cleanly.
   # ---------------------------------------------------------------------------
   airflow-init:
-    <<: *airflow-common
+    image: apache/airflow:2.9.2-python3.11
     container_name: rpa_airflow_init
-    user: "0:0" # Must run as root for chown + pip install
+    user: "0:0"
+
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      PYTHONPATH: /opt/airflow/modules
+      GARMIN_EMAIL: ${GARMIN_EMAIL}
+      GARMIN_PASSWORD: ${GARMIN_PASSWORD}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GARMIN_SESSION_FILE: /opt/airflow/data/garmin_session.json
+      DUCKDB_PATH: /opt/airflow/data/running_analytics.duckdb
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL}
+
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - ./ingestion:/opt/airflow/modules/ingestion
+      - ./ai_engine:/opt/airflow/modules/ai_engine
+      - ./dbt_project:/opt/airflow/dbt_project
+      - airflow_data:/opt/airflow/data
+      - ./airflow/airflow-requirements.txt:/opt/airflow/airflow-requirements.txt
 
     entrypoint: /bin/bash
     command:
@@ -144,9 +97,6 @@ services:
         pip install --quiet --no-cache-dir -r /opt/airflow/airflow-requirements.txt
 
         echo "==> [2/4] Fixing log directory permissions..."
-        # The logs volume is owned by root when first created.
-        # Airflow processes run as UID 50000 and cannot write to it.
-        # chown -R makes UID 50000 the owner of every subdirectory.
         mkdir -p /opt/airflow/logs/scheduler
         mkdir -p /opt/airflow/logs/dag_processor_manager
         chown -R 50000:0 /opt/airflow/logs
@@ -154,7 +104,6 @@ services:
         echo "    Log permissions set."
 
         echo "==> [3/4] Running Airflow DB migrations..."
-        # Switch back to airflow user for DB operations
         su -s /bin/bash airflow -c "airflow db upgrade"
 
         echo "==> [4/4] Creating admin user (skipped if already exists)..."
@@ -171,7 +120,7 @@ services:
 
         echo "==> Airflow initialization complete!"
 
-    restart: "no" # Run once and exit — Coolify will not restart it
+    restart: "no"
 
     depends_on:
       postgres:
@@ -181,10 +130,38 @@ services:
   # AIRFLOW SCHEDULER — triggers and monitors DAGs
   # ---------------------------------------------------------------------------
   airflow-scheduler:
-    <<: *airflow-common
+    image: apache/airflow:2.9.2-python3.11
     container_name: rpa_airflow_scheduler
+    user: "50000:0"
 
     command: scheduler
+
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+      AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+      PYTHONPATH: /opt/airflow/modules
+      GARMIN_EMAIL: ${GARMIN_EMAIL}
+      GARMIN_PASSWORD: ${GARMIN_PASSWORD}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GARMIN_SESSION_FILE: /opt/airflow/data/garmin_session.json
+      DUCKDB_PATH: /opt/airflow/data/running_analytics.duckdb
+
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - ./ingestion:/opt/airflow/modules/ingestion
+      - ./ai_engine:/opt/airflow/modules/ai_engine
+      - ./dbt_project:/opt/airflow/dbt_project
+      - airflow_data:/opt/airflow/data
+      - ./airflow/airflow-requirements.txt:/opt/airflow/airflow-requirements.txt
 
     healthcheck:
       test:
@@ -209,23 +186,46 @@ services:
       postgres:
         condition: service_healthy
       airflow-init:
-        condition: service_completed_successfully # Wait for init to finish
+        condition: service_completed_successfully
 
   # ---------------------------------------------------------------------------
   # AIRFLOW WEBSERVER — Airflow UI
-  #
-  # In Coolify: expose this via a private subdomain with basic auth or
-  # leave it internal (no public port). The port below is container-internal.
+  # In Coolify: attach a domain + enable basic auth via Traefik middleware.
   # ---------------------------------------------------------------------------
   airflow-webserver:
-    <<: *airflow-common
+    image: apache/airflow:2.9.2-python3.11
     container_name: rpa_airflow_webserver
+    user: "50000:0"
 
     command: webserver
 
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+      PYTHONPATH: /opt/airflow/modules
+      GARMIN_EMAIL: ${GARMIN_EMAIL}
+      GARMIN_PASSWORD: ${GARMIN_PASSWORD}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GARMIN_SESSION_FILE: /opt/airflow/data/garmin_session.json
+      DUCKDB_PATH: /opt/airflow/data/running_analytics.duckdb
+
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - ./ingestion:/opt/airflow/modules/ingestion
+      - ./ai_engine:/opt/airflow/modules/ai_engine
+      - ./dbt_project:/opt/airflow/dbt_project
+      - airflow_data:/opt/airflow/data
+      - ./airflow/airflow-requirements.txt:/opt/airflow/airflow-requirements.txt
+
     ports:
-      # HOST_PORT:CONTAINER_PORT
-      # Change HOST_PORT if 8080 is already in use on your VPS
       - "${AIRFLOW_PORT:-8080}:8080"
 
     healthcheck:
@@ -233,7 +233,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 90s # Webserver takes longer to boot than the scheduler
+      start_period: 90s
 
     restart: unless-stopped
 
@@ -247,14 +247,12 @@ services:
 
   # ---------------------------------------------------------------------------
   # STREAMLIT — Dashboard + AI Coach
-  #
-  # Runs from a dedicated Dockerfile (streamlit.Dockerfile) to keep
-  # the image lean and avoid conflicts with Airflow's Python environment.
+  # Built from streamlit.Dockerfile (lean image, no Airflow deps).
+  # Shares the airflow_data volume to read the DuckDB file written by Airflow.
   # ---------------------------------------------------------------------------
   streamlit:
     container_name: rpa_streamlit
 
-    # Build from a dedicated Dockerfile in the project root
     build:
       context: .
       dockerfile: streamlit.Dockerfile
@@ -263,14 +261,10 @@ services:
       - "${STREAMLIT_PORT:-8501}:8501"
 
     environment:
-      # DuckDB path inside the container (matches the volume mount below)
       DUCKDB_PATH: /app/data/running_analytics.duckdb
-      # API key — optional (dashboard works without it; AI Coach page requires it)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
     volumes:
-      # Mount the same DuckDB file that Airflow writes to
-      # Both services share the file through this named volume
       - airflow_data:/app/data
 
     healthcheck:
@@ -282,28 +276,11 @@ services:
 
     restart: unless-stopped
 
-    depends_on:
-      # Streamlit can start independently — it only reads DuckDB, never writes
-      # Add airflow-init here only if you want to guarantee data exists first
-      - postgres # ensures network is up; postgres itself not needed by Streamlit
-
 # =============================================================================
 # NAMED VOLUMES
 # =============================================================================
 
 volumes:
-  # Airflow metadata DB — survives container restarts
   postgres_data:
-
-  # Shared log volume — airflow-init, scheduler, and webserver all write here
   airflow_logs:
-
-  # Persistent data: DuckDB file + Garmin session JSON
-  # Shared between the Airflow pipeline and the Streamlit dashboard
   airflow_data:
-
-# =============================================================================
-# NETWORKS
-# All services share a single default bridge network created by Compose.
-# Coolify / Traefik will attach its own network on top for reverse proxy routing.
-# =============================================================================
